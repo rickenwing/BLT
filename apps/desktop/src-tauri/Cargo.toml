@@ -1,0 +1,44 @@
+[package]
+name = "blt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Buttz LAN Tool — desktop client / playback app."
+
+[lib]
+name = "blt_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+blt-core = { workspace = true, features = ["runtime"] }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+
+tokio.workspace = true
+axum.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+mdns-sd.workspace = true
+parking_lot.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+tokio-tungstenite = "0.23"
+fs4 = "0.12"
+hostname = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
