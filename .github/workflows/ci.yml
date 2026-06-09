@@ -24,6 +24,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Placeholder frontend dist (tauri's generate_context! needs it; dist/ is gitignored)
+        shell: bash
+        run: mkdir -p apps/desktop/dist && echo '<!doctype html><title>BLT</title>' > apps/desktop/dist/index.html
       - name: Format check
         run: cargo fmt --all -- --check
       - name: Clippy (warnings are errors)
