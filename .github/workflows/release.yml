@@ -1,0 +1,92 @@
+# Release: on a version tag, build signed bundles for Windows + macOS and
+# publish them to GitHub Releases (F0.2-F0.4).
+#
+# Required repository secrets (NEVER in the repo — F0.3):
+#   TAURI_SIGNING_PRIVATE_KEY           — Ed25519 updater key (tauri signer generate)
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  — its password (may be empty)
+#
+# The matching PUBLIC key is embedded in apps/desktop/src-tauri/tauri.conf.json
+# (plugins.updater.pubkey) so clients can verify update signatures.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: Desktop bundles (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: apps/desktop
+      - name: Build + bundle + sign + upload (NSIS on Windows, DMG on macOS)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Buttz LAN Tool ${{ github.ref_name }}"
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+  server:
+    name: Server binary (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: blt-server-macos
+            bin: blt-server
+          - os: windows-latest
+            artifact: blt-server-windows
+            bin: blt-server.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build admin SPA (served by the server)
+        run: npm ci && npm run build
+        working-directory: admin-web
+      - name: Build server (release)
+        run: cargo build --release -p blt-server
+      - name: Stage artifact (binary + admin SPA)
+        shell: bash
+        run: |
+          mkdir -p stage/admin-web
+          cp target/release/${{ matrix.bin }} stage/
+          cp -r admin-web/dist/* stage/admin-web/
+          cd stage && tar czf ../${{ matrix.artifact }}.tar.gz .
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: ${{ matrix.artifact }}.tar.gz
