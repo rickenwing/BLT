@@ -1,0 +1,30 @@
+# Rust
+/target
+**/target
+Cargo.lock.orig
+
+# Node / Tauri frontend
+node_modules
+dist
+dist-ssr
+apps/desktop/src-tauri/gen
+.vite
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# BLT runtime data (never commit local data roots / DBs / logs)
+*.db
+*.db-wal
+*.db-shm
+/test-data
+/scratch
+
+# Signing keys (never commit private keys)
+*.key
+**/*.pem
+tauri-private-key*
