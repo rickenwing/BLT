@@ -1,0 +1,50 @@
+[package]
+name = "blt-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Buttz LAN Tool — dedicated server (Axum): library distribution, shared pool, jukebox, admin panel."
+default-run = "blt-server"
+
+[[bin]]
+name = "blt-server"
+path = "src/main.rs"
+
+[dependencies]
+blt-core = { workspace = true, features = ["runtime"] }
+
+tokio.workspace = true
+axum = { workspace = true, features = ["ws", "macros", "multipart"] }
+tower.workspace = true
+tower-http.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+mdns-sd.workspace = true
+if-addrs.workspace = true
+local-ip-address.workspace = true
+notify.workspace = true
+walkdir.workspace = true
+blake3.workspace = true
+argon2.workspace = true
+rand.workspace = true
+toml.workspace = true
+parking_lot.workspace = true
+futures.workspace = true
+futures-util.workspace = true
+bytes.workspace = true
+hex.workspace = true
+base64 = "0.22"
+tokio-util = { version = "0.7", features = ["io"] }
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["multipart", "cookies"] }
+tempfile = "3"
+tokio-tungstenite = "0.23"

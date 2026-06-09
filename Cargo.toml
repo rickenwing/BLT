@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "crates/core",
-    # "crates/server" and "apps/desktop/src-tauri" are added as they are scaffolded.
+    "crates/server",
+    # "apps/desktop/src-tauri" is added when the Tauri app is scaffolded.
 ]
 
 [workspace.package]
@@ -28,7 +29,7 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws", "macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
 mdns-sd = "0.11"
 if-addrs = "0.13"
@@ -45,6 +46,7 @@ rand = "0.8"
 toml = "0.8"
 time = { version = "0.3", features = ["formatting", "macros"] }
 percent-encoding = "2"
+parking_lot = "0.12"
 
 [profile.release]
 opt-level = 3
