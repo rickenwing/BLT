@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/client/clientshell.tsx","./src/client/downloads.tsx","./src/client/jukebox.tsx","./src/client/library.tsx","./src/client/log.tsx","./src/client/people.tsx","./src/client/settings.tsx","./src/client/shares.tsx","./src/lib/api.ts","./src/playback/playback.tsx"],"version":"5.9.3"}

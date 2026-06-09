@@ -32,8 +32,40 @@ pub fn router(state: SharedState) -> Router {
         .route("/titles/:id/script", get(title_script))
         .route("/titles/:id/files/:file_id", get(serve_file))
         .route("/chunks/:file_id/:idx", get(serve_chunk))
+        .route("/admin/verify", axum::routing::post(verify_admin))
         .route("/ws", get(ws_upgrade))
         .with_state(state)
+}
+
+/// `POST /admin/verify` — check the admin password without creating a session.
+/// DESIGN-NOTE: the playback-lockdown gate (F14.3) reuses the admin password,
+/// but the admin *panel* may be bound to a NIC the playback machine can't
+/// reach; this endpoint exposes only a yes/no on the game listener. Trusted
+/// LAN; equivalent in strength to the login endpoint itself.
+async fn verify_admin(
+    State(state): State<SharedState>,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> ApiResult<StatusCode> {
+    use argon2::{PasswordHash, PasswordVerifier};
+    let password = body
+        .get("password")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("password required".into()))?;
+    let stored = state
+        .config
+        .read()
+        .admin_password_hash
+        .clone()
+        .ok_or_else(|| ApiError::Conflict("admin password not set yet".into()))?;
+    let parsed =
+        PasswordHash::new(&stored).map_err(|e| ApiError::Internal(format!("stored hash: {e}")))?;
+    if argon2::Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_err()
+    {
+        return Err(ApiError::Unauthorized);
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn title_to_summary(t: db::TitleRow) -> TitleSummary {
