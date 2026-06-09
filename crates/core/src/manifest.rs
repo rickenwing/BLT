@@ -222,7 +222,14 @@ pub fn build_file_entry(
         chunk_size
     };
     let plans = plan_chunks(size, chunk_size);
-    debug_assert_eq!(plans.len(), chunk_hashes.len());
+    // Hard invariant: a mismatch means the scanner hashed with a different
+    // chunk size than it planned with — zipping would silently truncate and
+    // publish a corrupt manifest. Fail loudly in release builds too.
+    assert_eq!(
+        plans.len(),
+        chunk_hashes.len(),
+        "chunk plan/hash count mismatch for {rel_path} (size {size}, chunk_size {chunk_size})"
+    );
     let chunks = plans
         .into_iter()
         .zip(chunk_hashes.iter().copied())

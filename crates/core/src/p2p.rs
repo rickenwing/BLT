@@ -27,13 +27,17 @@ pub struct TokenBucket {
 }
 
 impl TokenBucket {
-    /// `rate_bps` bytes/sec; burst defaults to one second of rate (min 1 byte).
+    /// `rate_bps` bytes/sec. The burst is sized to hold at least one default
+    /// chunk (4 MiB) so `try_take(chunk_len)` can always eventually succeed —
+    /// a burst smaller than the largest request would livelock the seeder
+    /// (rate 1.5 MB/s < chunk 4 MiB).
     pub fn new(rate_bps: f64) -> Self {
         let rate = rate_bps.max(0.0);
+        let burst = rate.max(crate::chunking::DEFAULT_CHUNK_SIZE as f64);
         TokenBucket {
             rate,
-            burst: rate.max(1.0),
-            tokens: rate.max(1.0),
+            burst,
+            tokens: burst,
         }
     }
 
@@ -63,11 +67,13 @@ impl TokenBucket {
     }
 
     /// Seconds until `n` tokens are available at the current rate (0 if already).
-    /// Returns `f64::INFINITY` for a zero rate that can never accumulate `n`.
+    /// Returns `f64::INFINITY` when the request can **never** be satisfied —
+    /// zero rate, or `n` larger than the burst capacity (callers must not spin
+    /// on an impossible request).
     pub fn time_until(&self, n: f64) -> f64 {
         if self.tokens >= n {
             0.0
-        } else if self.rate <= 0.0 {
+        } else if self.rate <= 0.0 || n > self.burst {
             f64::INFINITY
         } else {
             (n - self.tokens) / self.rate
@@ -137,8 +143,12 @@ impl PeerRate {
 #[derive(Debug, Clone)]
 pub struct PeerSource {
     pub id: String,
-    /// Measured throughput in bytes/sec (0.0 if not yet measured).
-    pub throughput_bps: f64,
+    /// Measured throughput in bytes/sec; `None` = not yet measured. The
+    /// distinction matters: an **unmeasured** peer gets an optimistic bootstrap
+    /// weight so measurement can start, while a peer **measured** below the
+    /// floor contributes nothing (F13.7). Conflating the two would deadlock
+    /// the swarm: no chunks → no measurement → no chunks, forever.
+    pub throughput_bps: Option<f64>,
     /// Reachability self-test passed (F13.4).
     pub reachable: bool,
     /// Flagged server-only by the reachability self-test (F13.5) → never used.
@@ -154,6 +164,9 @@ pub struct SchedulerConfig {
     pub server_weight: f64,
     /// Peers measured below this many bytes/sec contribute nothing.
     pub peer_floor_bps: f64,
+    /// Weight given to a reachable peer that has no measurement yet, so the
+    /// first chunks flow and produce one. Modest: the capped client default.
+    pub bootstrap_weight: f64,
 }
 
 impl Default for SchedulerConfig {
@@ -163,6 +176,7 @@ impl Default for SchedulerConfig {
         SchedulerConfig {
             server_weight: 8.0 * DEFAULT_UPLOAD_CAP_BPS as f64,
             peer_floor_bps: 32.0 * 1024.0, // 32 KB/s
+            bootstrap_weight: DEFAULT_UPLOAD_CAP_BPS as f64,
         }
     }
 }
@@ -177,15 +191,21 @@ pub const SERVER_SOURCE_ID: &str = "@server";
 /// advanced by `1/weight` per assigned chunk; the lowest-clock eligible source
 /// wins each chunk. A source with twice the weight is picked ~twice as often.
 pub fn assign(missing: &[u64], peers: &[PeerSource], cfg: &SchedulerConfig) -> Vec<(u64, String)> {
-    // Eligible peers: reachable, not server-only, at/above the floor.
-    let eligible: Vec<&PeerSource> = peers
+    // Effective weight per peer: unmeasured → bootstrap weight (so measurement
+    // can start); measured below the floor → excluded; else the measurement.
+    let eligible: Vec<(&PeerSource, f64)> = peers
         .iter()
-        .filter(|p| p.reachable && !p.server_only && p.throughput_bps >= cfg.peer_floor_bps)
+        .filter(|p| p.reachable && !p.server_only)
+        .filter_map(|p| match p.throughput_bps {
+            None => Some((p, cfg.bootstrap_weight.max(1.0))),
+            Some(bps) if bps >= cfg.peer_floor_bps => Some((p, bps)),
+            Some(_) => None, // measured slow → server handles it (F13.7)
+        })
         .collect();
 
     let mut vt: HashMap<&str, f64> = HashMap::new();
     vt.insert(SERVER_SOURCE_ID, 0.0);
-    for p in &eligible {
+    for (p, _) in &eligible {
         vt.insert(p.id.as_str(), 0.0);
     }
 
@@ -195,14 +215,14 @@ pub fn assign(missing: &[u64], peers: &[PeerSource], cfg: &SchedulerConfig) -> V
         let mut best_id: &str = SERVER_SOURCE_ID;
         let mut best_vt = vt[SERVER_SOURCE_ID];
         let mut best_weight = cfg.server_weight;
-        for p in &eligible {
+        for (p, w) in &eligible {
             if p.have.contains(&chunk) {
                 let v = vt[p.id.as_str()];
                 // Strictly-less keeps the server as the tie-break winner.
                 if v < best_vt - f64::EPSILON {
                     best_id = p.id.as_str();
                     best_vt = v;
-                    best_weight = p.throughput_bps.max(1.0);
+                    best_weight = *w;
                 }
             }
         }
@@ -253,6 +273,44 @@ mod tests {
     }
 
     #[test]
+    fn token_bucket_default_burst_fits_a_chunk_and_impossible_is_infinite() {
+        // Regression: rate 1.5 MB/s < 4 MiB chunk used to livelock — try_take
+        // could never succeed and time_until returned a finite lie.
+        let chunk = crate::chunking::DEFAULT_CHUNK_SIZE as f64;
+        let mut tb = TokenBucket::new(DEFAULT_UPLOAD_CAP_BPS as f64);
+        assert!(tb.try_take(chunk), "burst must hold one default chunk");
+        // and the bucket refills back up to a full chunk eventually
+        tb.refill(10.0);
+        assert!(tb.try_take(chunk));
+
+        // A request larger than burst can never be satisfied → INFINITY, not
+        // a finite wait the caller would spin on.
+        let small = TokenBucket::with_burst(1000.0, 1000.0);
+        assert_eq!(small.time_until(2000.0), f64::INFINITY);
+    }
+
+    #[test]
+    fn unmeasured_peers_bootstrap_instead_of_starving() {
+        // Regression: a fresh swarm (all peers unmeasured) used to send 100%
+        // of chunks to the server forever — measurement could never start.
+        let n = 200u64;
+        let missing: Vec<u64> = (0..n).collect();
+        let peers = vec![PeerSource {
+            id: "fresh".into(),
+            throughput_bps: None, // never measured
+            reachable: true,
+            server_only: false,
+            have: full_have(n),
+        }];
+        let a = assign(&missing, &peers, &SchedulerConfig::default());
+        let t = tally(&a);
+        let fresh = t.get("fresh").copied().unwrap_or(0);
+        assert!(fresh > 0, "unmeasured peer must receive bootstrap chunks");
+        let server = t.get(SERVER_SOURCE_ID).copied().unwrap_or(0);
+        assert!(server > fresh, "server still dominates during bootstrap");
+    }
+
+    #[test]
     fn ewma_converges() {
         let mut e = Ewma::new(0.5);
         assert_eq!(e.value(), None);
@@ -282,14 +340,14 @@ mod tests {
         let peers = vec![
             PeerSource {
                 id: "fast".into(),
-                throughput_bps: 4.0 * 1024.0 * 1024.0,
+                throughput_bps: Some(4.0 * 1024.0 * 1024.0),
                 reachable: true,
                 server_only: false,
                 have: full_have(n),
             },
             PeerSource {
                 id: "slow".into(),
-                throughput_bps: 1.0 * 1024.0 * 1024.0,
+                throughput_bps: Some(1.0 * 1024.0 * 1024.0),
                 reachable: true,
                 server_only: false,
                 have: full_have(n),
@@ -320,21 +378,21 @@ mod tests {
         let peers = vec![
             PeerSource {
                 id: "isolated".into(),
-                throughput_bps: 10.0 * 1024.0 * 1024.0,
+                throughput_bps: Some(10.0 * 1024.0 * 1024.0),
                 reachable: true,
                 server_only: true, // self-test failed
                 have: full_have(n),
             },
             PeerSource {
                 id: "gone".into(),
-                throughput_bps: 10.0 * 1024.0 * 1024.0,
+                throughput_bps: Some(10.0 * 1024.0 * 1024.0),
                 reachable: false,
                 server_only: false,
                 have: full_have(n),
             },
             PeerSource {
                 id: "tooslow".into(),
-                throughput_bps: 1.0, // below floor
+                throughput_bps: Some(1.0), // measured below floor
                 reachable: true,
                 server_only: false,
                 have: full_have(n),
@@ -353,7 +411,7 @@ mod tests {
         let missing = vec![0u64, 1, 2];
         let peers = vec![PeerSource {
             id: "p".into(),
-            throughput_bps: 10.0 * 1024.0 * 1024.0,
+            throughput_bps: Some(10.0 * 1024.0 * 1024.0),
             reachable: true,
             server_only: false,
             have: HashSet::from([0, 1]), // does NOT have chunk 2

@@ -66,9 +66,11 @@ fn vote_ranked(items: &[QueueItem]) -> Vec<u64> {
 }
 
 /// Round-robin by contributor; within a contributor's turn, highest-voted first
-/// (ties → earlier add). Each round takes one item from every contributor that
-/// still has items, contributors ordered that round by their next item's
-/// strength (F8.5 Fair Rotation).
+/// (ties → earlier add). The rotation order is **fixed** for the computation
+/// (contributors ranked once by their strongest item) and then cycled — a true
+/// round-robin. Re-ranking lanes every round would let a contributor play
+/// back-to-back across a round boundary while others still had items queued,
+/// which is exactly the hogging F8.5 exists to prevent.
 fn fair_rotation(items: &[QueueItem]) -> Vec<u64> {
     use std::collections::HashMap;
 
@@ -80,32 +82,24 @@ fn fair_rotation(items: &[QueueItem]) -> Vec<u64> {
     for g in groups.values_mut() {
         g.sort_by(|a, b| stronger(a, b));
     }
-    // Stable iteration: a Vec of (contributor, items) with a cursor each.
-    let mut lanes: Vec<(&str, Vec<&QueueItem>, usize)> =
-        groups.into_iter().map(|(k, v)| (k, v, 0usize)).collect();
+    // Fix the rotation order: by each contributor's strongest item, then by
+    // contributor id as a deterministic tie-break.
+    let mut lanes: Vec<(&str, Vec<&QueueItem>)> = groups.into_iter().collect();
+    lanes.sort_by(|(ka, va), (kb, vb)| stronger(va[0], vb[0]).then(ka.cmp(kb)));
 
     let mut out = Vec::with_capacity(items.len());
+    let mut cursor = vec![0usize; lanes.len()];
     loop {
-        // Collect lanes with a remaining head for this round.
-        let mut round: Vec<usize> = lanes
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, v, cur))| *cur < v.len())
-            .map(|(i, _)| i)
-            .collect();
-        if round.is_empty() {
-            break;
+        let mut took_any = false;
+        for (i, (_, v)) in lanes.iter().enumerate() {
+            if cursor[i] < v.len() {
+                out.push(v[cursor[i]].id);
+                cursor[i] += 1;
+                took_any = true;
+            }
         }
-        // Order this round's lanes by the strength of their current head.
-        round.sort_by(|&i, &j| {
-            let a = lanes[i].1[lanes[i].2];
-            let b = lanes[j].1[lanes[j].2];
-            stronger(a, b).then(lanes[i].0.cmp(lanes[j].0))
-        });
-        for li in round {
-            let (_, v, cur) = &mut lanes[li];
-            out.push(v[*cur].id);
-            *cur += 1;
+        if !took_any {
+            break;
         }
     }
     out
@@ -163,6 +157,40 @@ mod tests {
             item(3, "A", 5, 12),
         ];
         assert_eq!(order_up_next(&items, OrderMode::Fair), vec![2, 3, 1]);
+    }
+
+    #[test]
+    fn fair_rotation_never_back_to_back_while_others_queued() {
+        // Regression: re-ranking lanes each round let A play twice in a row
+        // across a round boundary while B still had items.
+        // A: votes [5, 4]; B: votes [9, 0]. Fixed rotation: B first (head 9).
+        let items = vec![
+            item(1, "A", 5, 10),
+            item(2, "A", 4, 11),
+            item(3, "B", 9, 12),
+            item(4, "B", 0, 13),
+        ];
+        let order = order_up_next(&items, OrderMode::Fair);
+        // B(3), A(1), B(4), A(2) — strict alternation, no hogging.
+        assert_eq!(order, vec![3, 1, 4, 2]);
+        // Property: no two adjacent items share a contributor while the other
+        // still has items queued.
+        let by_id = |id: u64| items.iter().find(|i| i.id == id).unwrap();
+        for w in order.windows(2) {
+            let (a, b) = (by_id(w[0]), by_id(w[1]));
+            if a.contributor == b.contributor {
+                // only allowed when the other contributor is exhausted
+                let other_left = items
+                    .iter()
+                    .filter(|i| i.contributor != a.contributor)
+                    .filter(|i| {
+                        order.iter().position(|&x| x == i.id).unwrap()
+                            > order.iter().position(|&x| x == w[0]).unwrap()
+                    })
+                    .count();
+                assert_eq!(other_left, 0, "back-to-back with items left: {order:?}");
+            }
+        }
     }
 
     #[test]

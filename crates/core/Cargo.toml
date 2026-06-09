@@ -8,10 +8,10 @@ authors.workspace = true
 description = "Buttz LAN Tool — shared core: manifest, chunking, hashing, protocol, transfer, p2p, discovery."
 
 [features]
-# Pure logic is the default (no tokio/tracing/fs) so core tests stay fast and
-# dependency-light. The `runtime` feature adds the shared app plumbing
-# (data-root resolution + rotating-file logging) used by both binaries.
-default = []
+# `runtime` (data-root resolution + rotating-file logging) is on by default so
+# a plain `cargo test` exercises the whole crate; both binaries use it anyway.
+# Pure-logic consumers can opt out with default-features = false.
+default = ["runtime"]
 runtime = ["dep:tracing", "dep:tracing-subscriber", "dep:tracing-appender"]
 
 [dependencies]

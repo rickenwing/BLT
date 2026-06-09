@@ -32,13 +32,19 @@ pub enum TransferError {
 /// Join a `/`-separated relative path under `root`, refusing traversal/absolute
 /// components. Manifest paths are server-derived, but we never trust a relative
 /// path to stay in-bounds without checking.
+///
+/// `:` is rejected anywhere in a component: on Windows `C:foo` is
+/// drive-relative (PathBuf::push would *replace* the whole path) and
+/// `name:stream` writes an NTFS alternate data stream — both escapes. Filenames
+/// containing `:` are not portable to Windows anyway (pathsafe transforms them
+/// on the shared-pool write side).
 pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, TransferError> {
     let mut out = root.to_path_buf();
     for comp in rel.split('/') {
         if comp.is_empty() || comp == "." {
             continue;
         }
-        if comp == ".." || comp.contains('\\') || (comp.len() == 2 && comp.ends_with(':')) {
+        if comp == ".." || comp.contains('\\') || comp.contains(':') {
             return Err(TransferError::UnsafePath(rel.to_string()));
         }
         out.push(comp);
@@ -88,6 +94,39 @@ pub fn verify_and_write(
         });
     }
     write_at(root, rel_path, offset, data)
+}
+
+/// Bring the on-disk tree in line with the manifest's **shape**: create
+/// zero-byte files (which have no chunks, hence no bitmap bits — the chunk
+/// loop never touches them) and truncate files that are **longer** than their
+/// manifest size (in-place updates leave trailing bytes because [`write_at`]
+/// never truncates; chunk repair alone can't fix that).
+///
+/// Call this when a download's bitmap completes and before chunk repair —
+/// without it, deep verify can fail forever with an empty repair plan.
+pub fn finalize_layout(manifest: &Manifest, root: &Path) -> Result<(), TransferError> {
+    for f in &manifest.files {
+        let path = safe_join(root, &f.rel_path)?;
+        if f.size == 0 {
+            // Materialise the empty file (presence is the completeness signal).
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(&path)?;
+            continue;
+        }
+        if let Ok(meta) = fs::metadata(&path) {
+            if meta.len() > f.size {
+                let file = fs::OpenOptions::new().write(true).open(&path)?;
+                file.set_len(f.size)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Why a file failed validation.
@@ -281,10 +320,73 @@ mod tests {
         assert!(safe_join(root, "../escape").is_err());
         assert!(safe_join(root, "a/../../b").is_err());
         assert!(safe_join(root, "C:").is_err());
+        // Windows drive-relative + NTFS alternate-data-stream escapes
+        assert!(safe_join(root, "C:foo/bar").is_err());
+        assert!(safe_join(root, "file.txt:hidden").is_err());
         assert_eq!(
             safe_join(root, "a/b/c.bin").unwrap(),
             Path::new("/tmp/root/a/b/c.bin")
         );
+    }
+
+    #[test]
+    fn finalize_layout_materialises_zero_byte_files() {
+        // Regression: a zero-byte file has no chunks → no bitmap bit → the
+        // chunk loop never creates it → validation failed forever.
+        let dir = tmp();
+        let fe = build_file_entry(
+            1,
+            "save/empty.cfg".into(),
+            0,
+            0,
+            hash_bytes(b""),
+            DEFAULT_CHUNK_SIZE,
+            &[],
+        );
+        let mut m = Manifest {
+            title_id: 1,
+            manifest_ver: 1,
+            total_size: 0,
+            file_count: 0,
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            files: vec![fe],
+        };
+        m.recompute_totals();
+
+        assert!(!validate_quick(&m, dir.path()).all_ok());
+        finalize_layout(&m, dir.path()).unwrap();
+        assert!(dir.path().join("save/empty.cfg").exists());
+        assert!(validate_quick(&m, dir.path()).all_ok());
+        assert!(validate_deep(&m, dir.path()).all_ok());
+        // idempotent, and never clobbers existing content of non-empty files
+        finalize_layout(&m, dir.path()).unwrap();
+        assert!(validate_quick(&m, dir.path()).all_ok());
+    }
+
+    #[test]
+    fn finalize_layout_truncates_overlong_files_so_repair_converges() {
+        // Regression: a file that SHRANK between manifest versions keeps its
+        // trailing bytes (write_at never truncates). Deep verify failed but
+        // repair_plan was empty → unrepairable. finalize_layout truncates.
+        let dir = tmp();
+        let content = b"exactly-the-manifest-content";
+        let m = single_file_manifest(content);
+
+        // Disk has correct prefix + stale trailing bytes.
+        let mut long = content.to_vec();
+        long.extend_from_slice(b"STALE-TRAILING-DATA");
+        fs::create_dir_all(dir.path().join("game")).unwrap();
+        fs::write(dir.path().join("game/data.bin"), &long).unwrap();
+
+        assert!(!validate_deep(&m, dir.path()).all_ok());
+        assert!(
+            repair_plan(&m, dir.path()).is_empty(),
+            "all chunks verify — chunk repair alone cannot fix this"
+        );
+
+        finalize_layout(&m, dir.path()).unwrap();
+        assert!(validate_quick(&m, dir.path()).all_ok());
+        assert!(validate_deep(&m, dir.path()).all_ok());
     }
 
     #[test]
