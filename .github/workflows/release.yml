@@ -25,16 +25,16 @@ jobs:
         include:
           - os: macos-latest
             args: --target universal-apple-darwin
-          - os: windows-latest
+          - os: windows-2025
             args: ""
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install frontend deps
@@ -62,15 +62,15 @@ jobs:
           - os: macos-latest
             artifact: blt-server-macos
             bin: blt-server
-          - os: windows-latest
+          - os: windows-2025
             artifact: blt-server-windows
             bin: blt-server.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Build admin SPA (served by the server)
