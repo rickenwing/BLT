@@ -3,18 +3,19 @@
 > Maintained per CLAUDE.md. Records milestone status, AC coverage, design
 > notes, and what a human should review/validate next.
 
-## Status snapshot (2026-06-09)
+## Status snapshot (2026-06-09, end of first pass)
 
 | Area | State |
 |---|---|
-| `crates/core` | **Done** — 80 unit tests, clippy-clean. |
-| `crates/server` | **Built + tested** — 16 unit + 10 integration tests (boots all three listeners in-process). |
-| `apps/desktop` (Tauri) | Not started — next. |
-| `admin-web` SPA | Not started — next. |
-| CI / signing / release | Not started — next (M0 leftover). |
-| Tray icon | Deferred to M8 polish (`main.rs` runs headless; flag accepted). |
+| `crates/core` | **Done** — 80+ unit tests, clippy-clean. |
+| `crates/server` | **Done** — 17 unit + 10 integration tests; smoke-tested live (scan→publish→serve, SPA, auth). |
+| `admin-web` SPA | **Done** — builds; served live by the server; all panel features. |
+| `apps/desktop` (Tauri) | **Built** — Rust engine + full client/playback UI compile clean (clippy `-D warnings`, strict TS). GUI flows need manual validation. |
+| CI / signing / release | **Workflows written** — CI (fmt/clippy/test, both OSes) + tagged signed releases via tauri-action. Unexercised until pushed to GitHub. |
+| Self-update client wiring | **Pending owner input** — release.yml signs bundles; the in-app "update available → Download & restart" needs the GitHub repo URL + the CI-generated pubkey in `tauri.conf.json` (`tauri signer generate`). Manual-only semantics documented (F0.4). |
+| Tray icon (server) | Deferred (documented); server runs headless. |
 
-`cargo test` → 106 passing. `cargo clippy --workspace --all-targets -- -D warnings` → clean.
+`cargo test --workspace` → 111 passing. `cargo clippy --workspace --all-targets -- -D warnings` → clean. `admin-web` + `apps/desktop` → strict-TS Vite builds clean.
 
 ## Milestones
 
@@ -114,10 +115,43 @@ redaction (#16); fair-rotation strict round-robin; single-step DB backup.
 - Staging settle window with a real slow copy (logic tested with settle=0).
 - Firewall prompts / first-launch UX (TDD §16).
 
-## Next
+## Milestone coverage after the desktop app
 
-1. CI workflows (build+test on push; tagged release with signing) — completes M0.
-2. `admin-web` SPA (titles, config/binds, shares, jukebox, log viewer).
-3. Tauri desktop app: client SQLite, downloader engine (core::transfer +
-   retry/backoff + sequential queue), browse/download/validate UI, then M3
-   discovery, M4 P2P client + chunk server, M5 share UI, M6/M7 playback.
+- **M0** ✅ (tray deferred, documented) — workspace, data-root, logging, CI,
+  signing/release workflows, Tauri stub w/ first-run mode pick.
+- **M1** ✅ — scan/manifest/staging/binds + admin panel lists/renames titles.
+- **M2** ✅ — server-direct chunked download w/ pause/resume/retry, sequential
+  visible queue, per-title + default paths, quick validation, client bitmap.
+- **M3** ✅ — mDNS advertise (server) + browse (client) w/ manual fallback;
+  deep verify + repair; download-all vs selective; cover/info display cached
+  by info_hash.
+- **M4** ✅ core paths — peer registry/WS, client chunk server (capped),
+  verify-from-peers, share-back toggle, reachability self-test w/ visible
+  server-only fallback, EWMA throughput, weighted scheduler, roster.
+  *Refinement noted:* peers advertise whole titles (no per-chunk have-maps in
+  v1 — failures blacklist a peer and the server fills in).
+- **M5** ✅ — shared pool file+folder upload (drag-drop + pickers, confirm
+  gates), structure-preserving sanitised downloads, X-of-N completeness +
+  re-fetch missing, owner/admin delete rules, display names, post-install
+  scripts (view+confirm, hash-pinned, Windows-only) + launch options.
+- **M6** ✅ — queue+upvote (client_id-keyed), Fair Rotation/Vote-Ranked,
+  embedded YouTube (IFrame API, ended→advance) + HTML5 LAN streaming, client
+  add/vote view, admin queue controls.
+- **M7** ✅ — external/DRM lane (real browser, awaiting-human, Next from
+  playback or admin), playback lockdown w/ server-verified admin password.
+- **M8** ◐ — admin password login ✅, lockdown gate ✅, log viewers (client +
+  admin/server) ✅, first-run mode pick ✅, `--reset-admin-bind` ✅, NSIS/DMG
+  bundling via CI ✅ (unexercised), docs/README ✅. **Remaining:** in-app
+  update indicator (needs repo URL + pubkey — see snapshot), server tray UX,
+  settings polish from real-world use.
+
+## Manual validation needed (GUI flows; the engine beneath them is tested)
+
+1. `npm run tauri dev` — first-run mode pick, connect to a live server,
+   browse covers, download w/ pause/resume mid-transfer, validate, Play.
+2. Drag-drop a folder into Shares from Finder/Explorer; download it on a
+   second client; delete-race behaviour.
+3. Two clients + playback machine: queue YouTube + a shared video + a Netflix
+   link; auto-advance; external await + Next; lockdown enter/exit.
+4. Real-LAN checks: mDNS discovery, AP-isolation → server-only roster badge,
+   3-NIC bind split, Windows build (`cargo build` + NSIS via CI).
