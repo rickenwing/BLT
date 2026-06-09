@@ -170,6 +170,11 @@ export interface ScriptResult {
   output: string;
 }
 
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
+
 // ── commands ──
 
 export const api = {
@@ -242,6 +247,8 @@ export const api = {
   lockdownExit: (password: string) => invoke<void>("lockdown_exit", { password }),
   logTail: (lines: number) => invoke<string[]>("log_tail", { lines }),
   externalOpen: (url: string) => invoke<void>("external_open", { url }),
+  updateCheck: () => invoke<UpdateInfo | null>("update_check"),
+  updateInstall: () => invoke<void>("update_install"),
 };
 
 /** Subscribe to a backend event; returns the unlisten promise. */
