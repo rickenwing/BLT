@@ -25,7 +25,7 @@ jobs:
         include:
           - os: macos-latest
             args: --target universal-apple-darwin
-          - os: windows-2025
+          - os: windows-2025-vs2026
             args: ""
     runs-on: ${{ matrix.os }}
     steps:
@@ -62,7 +62,7 @@ jobs:
           - os: macos-latest
             artifact: blt-server-macos
             bin: blt-server
-          - os: windows-2025
+          - os: windows-2025-vs2026
             artifact: blt-server-windows
             bin: blt-server.exe
     runs-on: ${{ matrix.os }}
