@@ -29,8 +29,8 @@ pub fn init(logs_dir: &Path, file_prefix: &str, default_directive: &str) -> Work
 
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    let filter = EnvFilter::try_from_env("BLT_LOG")
-        .unwrap_or_else(|_| EnvFilter::new(default_directive));
+    let filter =
+        EnvFilter::try_from_env("BLT_LOG").unwrap_or_else(|_| EnvFilter::new(default_directive));
 
     let file_layer = fmt::layer()
         .with_ansi(false)

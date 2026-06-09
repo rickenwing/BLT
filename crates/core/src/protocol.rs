@@ -265,6 +265,21 @@ pub enum ClientMsg {
     ReachabilityResult { peer: String, reachable: bool },
     /// Full state resync request after a reconnect (HARD CONSTRAINT #12 / F15.1).
     Resync,
+    /// Add a jukebox item (any client, F8.1). Attribution comes from the
+    /// session's Hello (display name + client_id).
+    JukeboxAdd {
+        item_type: ItemType,
+        /// URL, or share_id for a shared-pool file (F8.2).
+        reference: String,
+        title: Option<String>,
+    },
+    /// Toggle this client's upvote on an item (F8.4; keyed on client_id).
+    JukeboxVote { item_id: u64 },
+    /// Human-driven Next — accepted only from playback-mode sessions; the
+    /// admin panel drives Next via its own REST route (F10.4).
+    JukeboxNext,
+    /// An embedded item finished on the playback machine → auto-advance (F9.3).
+    JukeboxEnded,
     /// Keep-alive.
     Ping,
 }
@@ -280,8 +295,12 @@ pub enum ServerMsg {
     },
     /// Authoritative jukebox snapshot (pushed on every change + on resync).
     Jukebox(JukeboxState),
-    /// Live roster snapshot (F13.2).
-    Roster(Vec<RosterEntry>),
+    /// Live roster snapshot (F13.2). NB: a struct variant, not
+    /// `Roster(Vec<…>)` — an internally-tagged (`tag="type"`) newtype variant
+    /// holding a *sequence* fails to serialize at runtime.
+    Roster {
+        roster: Vec<RosterEntry>,
+    },
     /// Peer list for a title the client asked about (F4.10).
     Peers {
         title_id: u64,
@@ -316,6 +335,104 @@ mod tests {
         assert!(j.contains("\"type\":\"hello\""));
         let back: ClientMsg = serde_json::from_str(&j).unwrap();
         assert!(matches!(back, ClientMsg::Hello { .. }));
+    }
+
+    #[test]
+    fn every_server_msg_variant_serialises() {
+        // Regression: internally-tagged enums reject sequence payloads at
+        // RUNTIME (Roster used to be `Roster(Vec<…>)` and silently failed).
+        let variants: Vec<ServerMsg> = vec![
+            ServerMsg::Welcome {
+                server_uuid: "u".into(),
+                server_label: "l".into(),
+            },
+            ServerMsg::Jukebox(JukeboxState {
+                mode: OrderMode::Fair,
+                playback_state: PlaybackState::Idle,
+                now_playing: None,
+                up_next: vec![],
+            }),
+            ServerMsg::Roster {
+                roster: vec![RosterEntry {
+                    client_id: "c".into(),
+                    display_name: "n".into(),
+                    machine_name: "m".into(),
+                    activity: "idle".into(),
+                    server_only: false,
+                    throughput_bps: None,
+                }],
+            },
+            ServerMsg::Peers {
+                title_id: 1,
+                manifest_ver: 1,
+                peers: vec![PeerEntry {
+                    client_id: "c".into(),
+                    chunk_endpoint: "1.2.3.4:9000".into(),
+                }],
+            },
+            ServerMsg::ProbePeers { peers: vec![] },
+            ServerMsg::TitleChanged {
+                title_id: 1,
+                manifest_ver: 2,
+            },
+            ServerMsg::Pong,
+        ];
+        for v in variants {
+            let json = serde_json::to_string(&v)
+                .unwrap_or_else(|e| panic!("variant failed to serialise: {e}"));
+            let _: ServerMsg = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("variant failed to round-trip: {e} ({json})"));
+        }
+    }
+
+    #[test]
+    fn every_client_msg_variant_serialises() {
+        let variants: Vec<ClientMsg> = vec![
+            ClientMsg::Hello {
+                client_id: "c".into(),
+                display_name: "n".into(),
+                machine_name: "m".into(),
+                mode: Mode::Client,
+            },
+            ClientMsg::Announce {
+                title_id: 1,
+                manifest_ver: 1,
+                chunk_endpoint: "0.0.0.0:9000".into(),
+            },
+            ClientMsg::Unannounce {
+                title_id: 1,
+                manifest_ver: 1,
+            },
+            ClientMsg::Activity {
+                activity: "idle".into(),
+                throughput_bps: Some(1),
+                server_only: false,
+            },
+            ClientMsg::RequestPeers {
+                title_id: 1,
+                manifest_ver: 1,
+            },
+            ClientMsg::ReachabilityResult {
+                peer: "p".into(),
+                reachable: true,
+            },
+            ClientMsg::Resync,
+            ClientMsg::JukeboxAdd {
+                item_type: ItemType::Youtube,
+                reference: "r".into(),
+                title: None,
+            },
+            ClientMsg::JukeboxVote { item_id: 1 },
+            ClientMsg::JukeboxNext,
+            ClientMsg::JukeboxEnded,
+            ClientMsg::Ping,
+        ];
+        for v in variants {
+            let json = serde_json::to_string(&v)
+                .unwrap_or_else(|e| panic!("variant failed to serialise: {e}"));
+            let _: ClientMsg = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("variant failed to round-trip: {e} ({json})"));
+        }
     }
 
     #[test]
