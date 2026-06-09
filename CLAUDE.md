@@ -58,10 +58,15 @@ Do not skip ahead past a milestone's dependencies (the §12 table lists them). M
 > Fill these in as you scaffold M0; keep this section accurate.
 
 - Workspace build: `cargo build`
-- Tests: `cargo test`
-- Lint/format: `cargo fmt --all` and `cargo clippy --all-targets -- -D warnings`
+- Tests: `cargo test` (runs core unit tests, server unit tests, and the server
+  integration suite under `crates/server/tests/`)
+- Lint/format: `cargo fmt --all` and `cargo clippy --workspace --all-targets -- -D warnings`
+- Server run: `cargo run -p blt-server` (flags: `--data-root <path>`,
+  `--reset-admin-bind`, `--headless`)
+- Admin SPA dev: `cd admin-web && npm install && npm run dev` (proxies `/api`
+  to `127.0.0.1:7402`); build with `npm run build`, then serve via the server
+  (`BLT_ADMIN_WEB=admin-web/dist` or copy `dist/` next to the binary)
 - Desktop app dev: `cd apps/desktop && npm install && npm run tauri dev`
-- Server run: `cargo run -p server`
 
 ## Conventions
 
