@@ -1,6 +1,85 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, AppBootState, ConnectionState, formatBytes, on, ServerRow } from "../lib/api";
+import {
+  api,
+  AppBootState,
+  ConnectionState,
+  formatBytes,
+  on,
+  ServerRow,
+  UpdateInfo,
+} from "../lib/api";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+
+/** Manual self-update (F0.4): check on demand; "Download & restart" only ever
+ * runs from the explicit button below — nothing is automatic. */
+function UpdatesPanel({ version }: { version: string }) {
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function check() {
+    setChecking(true);
+    setMsg(null);
+    try {
+      const u = await api.updateCheck();
+      setUpdate(u);
+      if (!u) setMsg("You're on the latest version.");
+    } catch (e) {
+      // Offline → graceful no-op with a quiet note (F0.4).
+      setMsg(`Couldn't reach the update server (offline?): ${String(e)}`);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function install() {
+    if (
+      !window.confirm(
+        `Download and install v${update?.version}? The app restarts when it finishes.`,
+      )
+    )
+      return;
+    setInstalling(true);
+    try {
+      await api.updateInstall(); // restarts on success
+    } catch (e) {
+      setMsg(String(e));
+      setInstalling(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>Updates</h2>
+      <div className="panel">
+        <div className="row wrap">
+          <span className="grow">
+            Current version: <strong>v{version}</strong>
+            {update && (
+              <span className="badge blue" style={{ marginLeft: 10 }}>
+                ⬆ v{update.version} available
+              </span>
+            )}
+          </span>
+          <button onClick={check} disabled={checking || installing}>
+            {checking ? "Checking…" : "Check for updates"}
+          </button>
+          {update && (
+            <button className="primary" onClick={install} disabled={installing}>
+              {installing ? "Installing…" : "Download & restart"}
+            </button>
+          )}
+        </div>
+        {update?.notes && <pre style={{ marginTop: 10 }}>{update.notes}</pre>}
+        {msg && <div className="dim" style={{ marginTop: 8 }}>{msg}</div>}
+        <p className="dim" style={{ marginBottom: 0 }}>
+          Updates are always manual — nothing downloads or restarts on its own.
+        </p>
+      </div>
+    </>
+  );
+}
 
 export default function Settings({
   boot,
@@ -212,6 +291,8 @@ export default function Settings({
         {msg && <div className="success-text">{msg}</div>}
         <button className="primary">Save settings</button>
       </form>
+
+      <UpdatesPanel version={boot.version} />
 
       <h2>Playback lockdown</h2>
       <div className="panel">

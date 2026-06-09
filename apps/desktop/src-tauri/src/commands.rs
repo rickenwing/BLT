@@ -930,3 +930,56 @@ pub fn external_open(app: tauri::AppHandle, url: String) -> Cmd<()> {
         .open_url(url, None::<String>)
         .map_err(|e| format!("open failed: {e}"))
 }
+
+// ───────────────────────── self-update (F0.4) ───────────────────────
+
+#[derive(Serialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub notes: Option<String>,
+}
+
+/// Check GitHub Releases for a newer signed version. **Manual semantics**
+/// (HARD CONSTRAINT #2): this only *reports* — nothing is downloaded or
+/// installed here. Offline / unreachable → the caller treats the error as a
+/// graceful no-op.
+#[tauri::command]
+pub async fn update_check(app: tauri::AppHandle) -> Cmd<Option<UpdateInfo>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(update)) => {
+            info!(version = %update.version, "update available");
+            Ok(Some(UpdateInfo {
+                version: update.version.clone(),
+                notes: update.body.clone(),
+            }))
+        }
+        Ok(None) => Ok(None),
+        Err(e) => Err(format!("update check failed: {e}")),
+    }
+}
+
+/// "Download & restart" — runs only on the user's explicit click (#2). The
+/// bundle's Ed25519 signature is verified by the updater before install; the
+/// app restarts only after a successful install.
+#[tauri::command]
+pub async fn update_install(state: State<'_, Shared>, app: tauri::AppHandle) -> Cmd<()> {
+    use tauri_plugin_updater::UpdaterExt;
+    // Belt-and-braces: a locked playback client never updates from in-app UI —
+    // the admin unlocks it first (F0.4/F14.4).
+    if state.settings.read().playback_locked {
+        return Err("this machine is locked to playback — unlock it first to update".into());
+    }
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("no update available".into());
+    };
+    info!(version = %update.version, "downloading + installing update (user-initiated)");
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("update failed (nothing was changed): {e}"))?;
+    info!("update installed — restarting");
+    app.restart();
+}

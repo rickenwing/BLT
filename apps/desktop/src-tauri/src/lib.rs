@@ -90,6 +90,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(client_state)
         .invoke_handler(tauri::generate_handler![
             commands::get_app_state,
@@ -128,6 +129,8 @@ pub fn run() {
             commands::lockdown_exit,
             commands::log_tail,
             commands::external_open,
+            commands::update_check,
+            commands::update_install,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

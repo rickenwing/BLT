@@ -12,7 +12,7 @@
 | `admin-web` SPA | **Done** — builds; served live by the server; all panel features. |
 | `apps/desktop` (Tauri) | **Built** — Rust engine + full client/playback UI compile clean (clippy `-D warnings`, strict TS). GUI flows need manual validation. |
 | CI / signing / release | **Workflows written** — CI (fmt/clippy/test, both OSes) + tagged signed releases via tauri-action. Unexercised until pushed to GitHub. |
-| Self-update client wiring | **Pending owner input** — release.yml signs bundles; the in-app "update available → Download & restart" needs the GitHub repo URL + the CI-generated pubkey in `tauri.conf.json` (`tauri signer generate`). Manual-only semantics documented (F0.4). |
+| Self-update client wiring | **Done** — updater plugin wired to `github.com/rickenwing/BLT` releases; pubkey embedded; launch-time indicator + manual "Download & restart" in Settings; locked playback clients refuse in-app updates (F0.4). Remaining: add the two signing secrets to the GitHub repo, then tag. |
 | Tray icon (server) | Deferred (documented); server runs headless. |
 
 `cargo test --workspace` → 111 passing. `cargo clippy --workspace --all-targets -- -D warnings` → clean. `admin-web` + `apps/desktop` → strict-TS Vite builds clean.

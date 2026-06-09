@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, AppBootState, ConnectionState, on } from "../lib/api";
+import { api, AppBootState, ConnectionState, on, UpdateInfo } from "../lib/api";
 import Library from "./Library";
 import Downloads from "./Downloads";
 import Shares from "./Shares";
@@ -23,6 +23,13 @@ const PAGES: { key: Page; label: string }[] = [
 export default function ClientShell({ boot }: { boot: AppBootState }) {
   const [page, setPage] = useState<Page>("library");
   const [conn, setConn] = useState<ConnectionState>(boot.connection);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+
+  // Launch-time check (F0.4): indicator only — never downloads or installs.
+  // Offline / unreachable is a silent no-op.
+  useEffect(() => {
+    void api.updateCheck().then(setUpdate).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const un = on("connection-changed", async () => {
@@ -59,6 +66,13 @@ export default function ClientShell({ boot }: { boot: AppBootState }) {
           ))}
         </nav>
         <div className="spacer" />
+        {update && (
+          <nav className="nav">
+            <button onClick={() => setPage("settings")}>
+              <span className="badge blue">⬆ v{update.version} available</span>
+            </button>
+          </nav>
+        )}
         <div className="foot">
           {boot.settings.display_name} · v{boot.version}
         </div>
