@@ -1,0 +1,62 @@
+# CI: build + lint + test the workspace and both web frontends on the two
+# supported platforms (F0.1-F0.2). Pushes and PRs.
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
+
+  admin-web:
+    name: Admin SPA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+      - run: npm ci
+        working-directory: admin-web
+      - run: npm run build
+        working-directory: admin-web
+
+  desktop-frontend:
+    name: Desktop UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npm run build
+        working-directory: apps/desktop

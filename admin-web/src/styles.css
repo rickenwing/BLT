@@ -1,0 +1,370 @@
+/* BLT Admin — dark LAN-party theme */
+
+:root {
+  --bg: #0d1117;
+  --bg-panel: #161b22;
+  --bg-raised: #1c2330;
+  --border: #2d3748;
+  --text: #e6edf3;
+  --text-dim: #8b98a8;
+  --accent: #f0a830; /* bacon orange */
+  --accent-dim: #b87f24;
+  --green: #3fb950;
+  --red: #f85149;
+  --blue: #58a6ff;
+  --radius: 8px;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ── layout ── */
+
+.shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.brand {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 8px 20px 20px;
+  letter-spacing: 0.5px;
+}
+
+.brand .blt {
+  color: var(--accent);
+}
+
+.brand small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 10px 20px;
+  font-size: 14px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+
+.nav button:hover {
+  color: var(--text);
+  background: var(--bg-raised);
+}
+
+.nav button.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--bg-raised);
+}
+
+.sidebar .spacer {
+  flex: 1;
+}
+
+.main {
+  padding: 24px 32px;
+  max-width: 1100px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 18px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 22px 0 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ── widgets ── */
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.card .label {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.card .value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 9px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+tr:hover td {
+  background: var(--bg-raised);
+}
+
+button,
+.btn {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent-dim);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1208;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--accent-dim);
+}
+
+button.danger {
+  color: var(--red);
+}
+
+button.danger:hover {
+  border-color: var(--red);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input,
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  width: 100%;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+label.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+label.field span {
+  display: block;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+}
+
+/* ── badges/status ── */
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.badge.ok {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.badge.warn {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge.err {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.error-text {
+  color: var(--red);
+  margin: 8px 0;
+}
+
+.success-text {
+  color: var(--green);
+  margin: 8px 0;
+}
+
+/* ── login ── */
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-box {
+  width: 360px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+}
+
+.login-box h1 {
+  text-align: center;
+}
+
+/* ── jukebox ── */
+
+.np {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.queue-item .votes {
+  min-width: 36px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ── log viewer ── */
+
+.log-view {
+  background: #0a0d12;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px;
+  overflow: auto;
+  max-height: 70vh;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line.warn {
+  color: var(--accent);
+}
+
+.log-line.error {
+  color: var(--red);
+}
+
+.log-line.info {
+  color: var(--text);
+}
+
+.log-line.debug,
+.log-line.trace {
+  color: var(--text-dim);
+}
