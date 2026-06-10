@@ -145,6 +145,19 @@ redaction (#16); fair-rotation strict round-robin; single-step DB backup.
   update indicator (needs repo URL + pubkey — see snapshot), server tray UX,
   settings polish from real-world use.
 
+## Backlog (post-first-pass feature ideas, not in the spec)
+
+- **Sidecar authoring tool**: nothing in the app generates `.blt/info.json`
+  today — the scanner only *reads* it (library.rs), the admin panel "rename"
+  is a DB-only label override, and the docs define the sidecar as the admin's
+  hand-authored input format (F2.3). Wanted: a helper to generate/edit the
+  sidecar for a game folder (schema: `core::protocol::SidecarInfo` — name,
+  year, genre, players, blurb, link, `launch[]`, `install_script.windows`,
+  plus a `cover.*` image file). Natural home: an admin-panel title-edit form
+  that writes the sidecar to disk and rescans (keeps the
+  sidecar-as-source-of-truth model); a standalone CLI is the lighter
+  alternative.
+
 ## Manual validation needed (GUI flows; the engine beneath them is tested)
 
 1. `npm run tauri dev` — first-run mode pick, connect to a live server,
