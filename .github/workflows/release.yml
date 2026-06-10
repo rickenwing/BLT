@@ -13,6 +13,11 @@ on:
   push:
     tags: ["v*"]
 
+# The default GITHUB_TOKEN is read-only; creating the release + uploading
+# assets needs contents:write.
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
