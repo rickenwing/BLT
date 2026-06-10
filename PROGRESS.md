@@ -3,16 +3,17 @@
 > Maintained per CLAUDE.md. Records milestone status, AC coverage, design
 > notes, and what a human should review/validate next.
 
-## Status snapshot (2026-06-09, end of first pass)
+## Status snapshot (2026-06-10, v0.1.0 published)
 
 | Area | State |
 |---|---|
 | `crates/core` | **Done** — 80+ unit tests, clippy-clean. |
 | `crates/server` | **Done** — 17 unit + 10 integration tests; smoke-tested live (scan→publish→serve, SPA, auth). |
 | `admin-web` SPA | **Done** — builds; served live by the server; all panel features. |
-| `apps/desktop` (Tauri) | **Built** — Rust engine + full client/playback UI compile clean (clippy `-D warnings`, strict TS). GUI flows need manual validation. |
-| CI / signing / release | **Workflows written** — CI (fmt/clippy/test, both OSes) + tagged signed releases via tauri-action. Unexercised until pushed to GitHub. |
-| Self-update client wiring | **Done** — updater plugin wired to `github.com/rickenwing/BLT` releases; pubkey embedded; launch-time indicator + manual "Download & restart" in Settings; locked playback clients refuse in-app updates (F0.4). Remaining: add the two signing secrets to the GitHub repo, then tag. |
+| `apps/desktop` (Tauri) | **Built** — Rust engine + full client/playback UI compile clean (clippy `-D warnings`, strict TS). GUI flows need manual validation → `docs/TESTING_CHECKLIST.md`. |
+| CI | **Green on GitHub** — fmt/clippy/test on macOS + Windows (`windows-2025-vs2026` image, Node 24 actions). |
+| Release / signing | **v0.1.0 published** — signed NSIS + universal DMG + macOS `.app.tar.gz` updater artifact + server tarballs; `latest.json` covers darwin-aarch64/x86_64 + windows-x86_64. Fixes along the way: `permissions: contents=write` (token was read-only), `app` bundle target (macOS updater artifact wasn't built from `dmg` alone). |
+| Self-update client wiring | **Done & endpoint live** — updater polls `releases/latest/download/latest.json` (verified 200); launch-time indicator + manual "Download & restart"; locked playback clients refuse in-app updates (F0.4). Full update flow testable once a v0.1.1 exists. |
 | Tray icon (server) | Deferred (documented); server runs headless. |
 
 `cargo test --workspace` → 111 passing. `cargo clippy --workspace --all-targets -- -D warnings` → clean. `admin-web` + `apps/desktop` → strict-TS Vite builds clean.
