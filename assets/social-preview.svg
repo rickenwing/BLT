@@ -18,8 +18,7 @@
       <stop offset="1" stop-color="#5EEAD4"/>
     </radialGradient>
     <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="14" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      <feGaussianBlur stdDeviation="12"/>
     </filter>
   </defs>
 
@@ -28,18 +27,22 @@
 
   <!-- infinity mark (the 1024 design, scaled + moved left) -->
   <g transform="translate(82.6,30.6) scale(0.566)">
-    <g fill="none" stroke="url(#mesh)" stroke-width="58" stroke-linecap="round" filter="url(#glow)">
-      <path d="M512 512 C590 430 742 430 742 512 C742 594 590 594 512 512
-               C434 430 282 430 282 512 C282 594 434 594 512 512 Z"/>
+    <g filter="url(#glow)" opacity="0.5">
+      <path d="M512 512 C596 424 740 424 740 512 C740 600 596 600 512 512
+               C428 424 284 424 284 512 C284 600 428 600 512 512 Z"
+            fill="none" stroke="url(#mesh)" stroke-width="48" stroke-linecap="round"/>
     </g>
-    <g fill="url(#node)" stroke="#0A0E1A" stroke-width="6">
-      <circle cx="742" cy="512" r="30"/>
-      <circle cx="282" cy="512" r="30"/>
-      <circle cx="656" cy="450" r="26"/>
-      <circle cx="656" cy="574" r="26"/>
-      <circle cx="368" cy="450" r="26"/>
-      <circle cx="368" cy="574" r="26"/>
-      <circle cx="512" cy="512" r="40"/>
+    <path d="M512 512 C596 424 740 424 740 512 C740 600 596 600 512 512
+             C428 424 284 424 284 512 C284 600 428 600 512 512 Z"
+          fill="none" stroke="url(#mesh)" stroke-width="46" stroke-linecap="round"/>
+    <g fill="url(#node)" stroke="#0C1424" stroke-width="4">
+      <circle cx="740" cy="512" r="26"/>
+      <circle cx="284" cy="512" r="26"/>
+      <circle cx="657" cy="446" r="23"/>
+      <circle cx="657" cy="578" r="23"/>
+      <circle cx="367" cy="446" r="23"/>
+      <circle cx="367" cy="578" r="23"/>
+      <circle cx="512" cy="512" r="34"/>
     </g>
   </g>
 

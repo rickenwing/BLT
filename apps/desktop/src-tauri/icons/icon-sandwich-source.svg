@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0A0E1A"/>
+      <stop offset="1" stop-color="#131C32"/>
+    </linearGradient>
+    <radialGradient id="warm" cx="0.5" cy="0.52" r="0.52">
+      <stop offset="0" stop-color="#F5A623" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#F5A623" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4C97E"/>
+      <stop offset="1" stop-color="#D9963F"/>
+    </linearGradient>
+    <linearGradient id="bunlo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E8B65E"/>
+      <stop offset="1" stop-color="#CC8A36"/>
+    </linearGradient>
+    <linearGradient id="tom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4604A"/>
+      <stop offset="1" stop-color="#D23A28"/>
+    </linearGradient>
+    <linearGradient id="let" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9BDB57"/>
+      <stop offset="1" stop-color="#5DA42B"/>
+    </linearGradient>
+    <linearGradient id="bac" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9543A"/>
+      <stop offset="1" stop-color="#9A3A24"/>
+    </linearGradient>
+    <linearGradient id="mesh" x1="0.1" y1="0.2" x2="0.9" y2="0.8">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="208" fill="url(#bg)"/>
+  <circle cx="512" cy="520" r="380" fill="url(#warm)"/>
+
+  <!-- sandwich pick: toothpick + glowing infinity topper -->
+  <g>
+    <g filter="url(#soft)" opacity="0.6">
+      <path d="M482 238 C494 220 520 220 520 238 C520 256 494 256 482 238
+               C470 220 444 220 444 238 C444 256 470 256 482 238 Z"
+            fill="none" stroke="url(#mesh)" stroke-width="13"/>
+    </g>
+    <path d="M482 238 C494 220 520 220 520 238 C520 256 494 256 482 238
+             C470 220 444 220 444 238 C444 256 470 256 482 238 Z"
+          fill="none" stroke="url(#mesh)" stroke-width="12" stroke-linecap="round"/>
+    <rect x="478" y="250" width="8" height="60" rx="4" fill="#D8B36A"/>
+  </g>
+
+  <!-- top bun (domed, sesame) -->
+  <path d="M268 446 C268 340 372 300 512 300 C652 300 756 340 756 446 Z" fill="url(#bun)" stroke="#B97A2E" stroke-width="4"/>
+  <g fill="#FBE8C6">
+    <ellipse cx="430" cy="392" rx="8" ry="13" transform="rotate(-18 430 392)"/>
+    <ellipse cx="512" cy="368" rx="8" ry="13"/>
+    <ellipse cx="594" cy="392" rx="8" ry="13" transform="rotate(18 594 392)"/>
+    <ellipse cx="468" cy="426" rx="8" ry="13" transform="rotate(-8 468 426)"/>
+    <ellipse cx="556" cy="426" rx="8" ry="13" transform="rotate(8 556 426)"/>
+  </g>
+
+  <!-- tomato -->
+  <rect x="276" y="446" width="472" height="56" rx="20" fill="url(#tom)" stroke="#B12E1E" stroke-width="3"/>
+
+  <!-- lettuce (ruffled, overhangs) -->
+  <path d="M236 500 L788 500 L788 536
+           q-39 30 -69 2 q-30 28 -69 0 q-39 28 -69 0 q-30 28 -69 0
+           q-39 28 -69 0 q-30 28 -69 0 q-39 28 -69 0 q-30 28 -34 2
+           Z" fill="url(#let)" stroke="#4E8F24" stroke-width="3"/>
+
+  <!-- bacon (wavy strip with streaks) -->
+  <path d="M280 556 q58 -20 116 0 q58 20 116 0 q58 -20 116 0 q58 20 124 0
+           l0 44 q-62 20 -124 0 q-58 -20 -116 0 q-58 20 -116 0 q-58 -20 -116 0 Z"
+        fill="url(#bac)" stroke="#7E2E1C" stroke-width="3"/>
+  <path d="M286 576 q58 -16 116 0 q58 16 116 0 q58 -16 116 0 q58 16 116 0"
+        fill="none" stroke="#E79A86" stroke-width="7" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- bottom bun -->
+  <path d="M276 604 C276 690 376 720 512 720 C648 720 748 690 748 604 Z" fill="url(#bunlo)" stroke="#B97A2E" stroke-width="4"/>
+</svg>
