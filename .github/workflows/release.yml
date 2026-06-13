@@ -92,6 +92,7 @@ jobs:
           mkdir -p stage/admin-web
           cp target/release/${{ matrix.bin }} stage/
           cp -r admin-web/dist/* stage/admin-web/
+          cp -r examples stage/examples
           cd stage && tar czf ../${{ matrix.artifact }}.tar.gz .
       - name: Attach to release
         uses: softprops/action-gh-release@v2
