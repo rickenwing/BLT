@@ -1,0 +1,13 @@
+{
+  "name": "Buttz Kart Deluxe",
+  "year": 2026,
+  "genre": "Racing",
+  "players": "1-8 local",
+  "blurb": "Short description shown on the client's title card.",
+  "link": "https://optional-homepage.example",
+  "launch": [
+    { "name": "Play", "exe": "ButtzKart.exe", "args": "-windowed", "cwd": "." },
+    { "name": "Dedicated Server", "exe": "DedicatedServer.exe" }
+  ],
+  "install_script": { "windows": "install.ps1" }
+}
