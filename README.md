@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/social-preview.png" alt="Buttz LAN Tool" width="640">
+</p>
+
 # Buttz LAN Tool (BLT)
 
 Self-hosted, LAN-only game distribution + shared file pool + networked video
