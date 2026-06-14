@@ -28,3 +28,11 @@ apps/desktop/src-tauri/gen
 *.key
 **/*.pem
 tauri-private-key*
+
+# Design + internal docs — kept local, not published
+docs/
+
+# Internal markdown — kept local, not published (anchored so examples/README.md still ships)
+/CLAUDE.md
+/README.md
+/PROGRESS.md
