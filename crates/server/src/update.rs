@@ -8,7 +8,6 @@
 //! pointing at the manual swap. The **check** works on every platform.
 
 use serde::Serialize;
-use std::path::Path;
 
 /// The canonical release source — must match the desktop updater endpoint and
 /// the CI release repo.
@@ -170,7 +169,7 @@ pub async fn install() -> anyhow::Result<()> {
 /// Sanity-check the downloaded binary actually runs and reports a parseable
 /// version, so a corrupt/incompatible download is rejected before we commit.
 #[cfg(unix)]
-fn validate_binary(bin: &Path) -> anyhow::Result<()> {
+fn validate_binary(bin: &std::path::Path) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(bin, std::fs::Permissions::from_mode(0o755))?;
     let out = std::process::Command::new(bin).arg("--version").output()?;
@@ -179,11 +178,6 @@ fn validate_binary(bin: &Path) -> anyhow::Result<()> {
     if parse_ver(ver).is_none() {
         anyhow::bail!("new binary failed --version sanity check");
     }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn validate_binary(_bin: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
