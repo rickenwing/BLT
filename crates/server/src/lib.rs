@@ -13,6 +13,7 @@ pub mod mdns;
 pub mod share;
 pub mod state;
 pub mod tasks;
+pub mod update;
 pub mod util;
 pub mod ws;
 

@@ -43,6 +43,10 @@ bytes.workspace = true
 hex.workspace = true
 base64 = "0.22"
 tokio-util = { version = "0.7", features = ["io"] }
+# Server self-update (ENH-2): fetch the latest GitHub release + unpack the tarball.
+reqwest = { workspace = true }
+tar = "0.4"
+flate2 = "1"
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["multipart", "cookies"] }

@@ -44,6 +44,9 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/scan", post(scan_now))
         .route("/api/services/:kind/restart", post(restart_service))
         .route("/api/server/restart", post(restart_server))
+        .route("/api/fs", get(fs_browse))
+        .route("/api/update/check", get(update_check))
+        .route("/api/update/install", post(update_install))
         .route("/api/titles", get(titles))
         .route("/api/titles/:id/label", put(set_label))
         .route("/api/shares", get(admin_shares))
@@ -461,6 +464,94 @@ async fn restart_server(State(state): State<SharedState>) -> ApiResult<Json<serd
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     }
     // Defer so this 200 flushes to the admin before the image is replaced.
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        crate::reexec();
+    });
+    Ok(Json(json!({ "ok": true, "restarting": true })))
+}
+
+// ────────────────────────── filesystem browse ──────────────────────
+
+#[derive(Deserialize)]
+struct FsQuery {
+    #[serde(default)]
+    path: String,
+}
+
+/// `GET /api/fs?path=…` — list the sub-directories of a server-side folder so
+/// the admin panel can offer a "Browse…" picker for the storage paths (ENH-1).
+/// Admin-gated (the admin legitimately browses the server's own disk). Empty
+/// path → the server's home directory.
+async fn fs_browse(Query(q): Query<FsQuery>) -> ApiResult<Json<serde_json::Value>> {
+    let start = if q.path.trim().is_empty() {
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| "/".to_string())
+    } else {
+        q.path.clone()
+    };
+    let canon = std::path::Path::new(&start)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(&start));
+    if !canon.is_dir() {
+        return Err(ApiError::BadRequest(format!(
+            "not a directory: {}",
+            canon.display()
+        )));
+    }
+    let mut dirs: Vec<serde_json::Value> = Vec::new();
+    let rd = std::fs::read_dir(&canon)
+        .map_err(|e| ApiError::BadRequest(format!("cannot read {}: {e}", canon.display())))?;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with('.') {
+                continue; // hide dotfolders to reduce noise
+            }
+            dirs.push(json!({ "name": name, "path": p.to_string_lossy() }));
+        }
+    }
+    dirs.sort_by(|a, b| {
+        a["name"]
+            .as_str()
+            .unwrap_or("")
+            .to_lowercase()
+            .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+    });
+    Ok(Json(json!({
+        "path": canon.to_string_lossy(),
+        "parent": canon.parent().map(|p| p.to_string_lossy().to_string()),
+        "dirs": dirs,
+    })))
+}
+
+// ───────────────────────────── self-update ─────────────────────────
+
+/// `GET /api/update/check` — is a newer server release published? (ENH-2)
+async fn update_check() -> ApiResult<Json<crate::update::UpdateInfo>> {
+    let info = crate::update::check()
+        .await
+        .map_err(|e| ApiError::Internal(format!("update check: {e}")))?;
+    Ok(Json(info))
+}
+
+/// `POST /api/update/install` — download the latest server tarball, replace the
+/// install in place, then re-exec. Manual + confirmed only (HARD CONSTRAINT #2);
+/// the SPA gates it. Errors out cleanly (nothing replaced) on any failure
+/// before the commit point.
+async fn update_install(State(state): State<SharedState>) -> ApiResult<Json<serde_json::Value>> {
+    crate::update::install()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("update: {e}")))?;
+    info!("server update installed; re-executing");
+    {
+        let conn = state.db.lock();
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
         crate::reexec();

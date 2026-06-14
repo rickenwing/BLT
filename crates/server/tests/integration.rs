@@ -250,6 +250,50 @@ async fn rescan_bumps_version_sidecar_change_does_not() {
     assert_ne!(info2, info3, "info_hash must change on sidecar edit");
 }
 
+// OBS-1: a file touched without a content change (new mtime, identical bytes —
+// e.g. a regenerated folder) must NOT bump the manifest version or force every
+// client to re-download unchanged bytes.
+#[tokio::test]
+async fn touch_without_content_change_does_not_bump_version() {
+    let srv = boot().await;
+    make_game(&srv.library, "Game1");
+    scan(&srv.state);
+    let title_id = {
+        let conn = srv.state.db.lock();
+        db::title_id_by_name(&conn, "Game1").unwrap().unwrap()
+    };
+    let v1 = {
+        let conn = srv.state.db.lock();
+        db::get_title(&conn, title_id)
+            .unwrap()
+            .unwrap()
+            .manifest_ver
+    };
+    assert_eq!(v1, 1);
+
+    // mtime is second-granular — cross a second boundary so the new mtime
+    // differs, then rewrite identical bytes (same len+seed as make_game).
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    write_file(&srv.library.join("Game1/readme.txt"), 64, 3);
+
+    let s = scan(&srv.state);
+    assert!(
+        s.republished.is_empty() && s.published.is_empty(),
+        "a touch with identical content must not republish"
+    );
+    let v2 = {
+        let conn = srv.state.db.lock();
+        db::get_title(&conn, title_id)
+            .unwrap()
+            .unwrap()
+            .manifest_ver
+    };
+    assert_eq!(
+        v2, 1,
+        "identical content must not bump the manifest version"
+    );
+}
+
 #[tokio::test]
 async fn staging_promotes_only_when_stable() {
     let srv = boot().await;
