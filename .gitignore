@@ -34,7 +34,6 @@ docs/
 
 # Internal markdown — kept local, not published (anchored so examples/README.md still ships)
 /CLAUDE.md
-/README.md
 /PROGRESS.md
 
 # TypeScript incremental build cache (generated)
