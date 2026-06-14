@@ -36,3 +36,6 @@ docs/
 /CLAUDE.md
 /README.md
 /PROGRESS.md
+
+# TypeScript incremental build cache (generated)
+*.tsbuildinfo
