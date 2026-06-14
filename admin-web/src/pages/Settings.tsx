@@ -58,8 +58,78 @@ function BindEditor({
   );
 }
 
+type PathField = "library_path" | "staging_path" | "share_path";
+
+interface FsListing {
+  path: string;
+  parent: string | null;
+  dirs: { name: string; path: string }[];
+}
+
+/** Server-side folder picker (ENH-1): browses the server's own filesystem. */
+function FolderPicker({
+  initial,
+  onPick,
+  onClose,
+}: {
+  initial: string;
+  onPick: (path: string) => void;
+  onClose: () => void;
+}) {
+  const [cur, setCur] = useState<FsListing | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = async (p: string) => {
+    try {
+      setErr(null);
+      setCur(await api.get<FsListing>(`/api/fs?path=${encodeURIComponent(p)}`));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "failed");
+    }
+  };
+  useEffect(() => {
+    void load(initial);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0 }}>Choose a folder</h3>
+        {err && <div className="error-text">{err}</div>}
+        {cur && (
+          <>
+            <div className="dim" style={{ wordBreak: "break-all", marginBottom: 8 }}>
+              {cur.path}
+            </div>
+            <div className="picker-list">
+              {cur.parent && (
+                <button className="picker-row" onClick={() => load(cur.parent!)}>
+                  ⬆ ..
+                </button>
+              )}
+              {cur.dirs.map((d) => (
+                <button key={d.path} className="picker-row" onClick={() => load(d.path)}>
+                  📁 {d.name}
+                </button>
+              ))}
+              {cur.dirs.length === 0 && <div className="dim">No sub-folders.</div>}
+            </div>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={onClose}>Cancel</button>
+              <button className="primary" onClick={() => onPick(cur.path)}>
+                Select this folder
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [cfg, setCfg] = useState<ServerConfig | null>(null);
+  const [pickerFor, setPickerFor] = useState<PathField | null>(null);
   const [interfaces, setInterfaces] = useState<InterfaceInfo[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,30 +231,48 @@ export default function Settings() {
         <div className="panel">
           <label className="field">
             <span>Game library (each subfolder = one title, stored unzipped)</span>
-            <input
-              value={cfg.library_path ?? ""}
-              onChange={(e) => set({ library_path: e.target.value || null })}
-              placeholder="/Volumes/Games/library"
-            />
+            <div className="row">
+              <input
+                className="grow"
+                value={cfg.library_path ?? ""}
+                onChange={(e) => set({ library_path: e.target.value || null })}
+                placeholder="/Volumes/Games/library"
+              />
+              <button type="button" onClick={() => setPickerFor("library_path")}>
+                Browse…
+              </button>
+            </div>
           </label>
           <label className="field">
             <span>
               Staging (same volume as the library — promoted after the settle
               window)
             </span>
-            <input
-              value={cfg.staging_path ?? ""}
-              onChange={(e) => set({ staging_path: e.target.value || null })}
-              placeholder="/Volumes/Games/staging"
-            />
+            <div className="row">
+              <input
+                className="grow"
+                value={cfg.staging_path ?? ""}
+                onChange={(e) => set({ staging_path: e.target.value || null })}
+                placeholder="/Volumes/Games/staging"
+              />
+              <button type="button" onClick={() => setPickerFor("staging_path")}>
+                Browse…
+              </button>
+            </div>
           </label>
           <label className="field">
             <span>Shared pool drive</span>
-            <input
-              value={cfg.share_path ?? ""}
-              onChange={(e) => set({ share_path: e.target.value || null })}
-              placeholder="/Volumes/Share/pool"
-            />
+            <div className="row">
+              <input
+                className="grow"
+                value={cfg.share_path ?? ""}
+                onChange={(e) => set({ share_path: e.target.value || null })}
+                placeholder="/Volumes/Share/pool"
+              />
+              <button type="button" onClick={() => setPickerFor("share_path")}>
+                Browse…
+              </button>
+            </div>
           </label>
         </div>
 
@@ -262,6 +350,17 @@ export default function Settings() {
         </div>
         {pwMsg && <div className="dim">{pwMsg}</div>}
       </form>
+
+      {pickerFor && (
+        <FolderPicker
+          initial={cfg[pickerFor] ?? ""}
+          onPick={(p) => {
+            set({ [pickerFor]: p } as Partial<ServerConfig>);
+            setPickerFor(null);
+          }}
+          onClose={() => setPickerFor(null)}
+        />
+      )}
     </>
   );
 }

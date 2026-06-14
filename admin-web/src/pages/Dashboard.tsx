@@ -1,10 +1,44 @@
 import { useEffect, useState } from "react";
 import { api, formatUptime, Status } from "../api";
 
+interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  notes: string;
+  url: string;
+}
+
 export default function Dashboard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setUpdate(await api.get<UpdateInfo>("/api/update/check"));
+      } catch {
+        /* offline / rate-limited — leave the banner hidden */
+      }
+    })();
+  }, []);
+
+  async function installUpdate() {
+    if (
+      !confirm(
+        `Download server ${update?.latest} and restart now? Connected clients drop briefly and reconnect; downloads resume.`,
+      )
+    )
+      return;
+    setActionMsg("Downloading & installing the update — the server will restart…");
+    try {
+      await api.post("/api/update/install");
+    } catch (e) {
+      setActionMsg(e instanceof Error ? `Update failed: ${e.message}` : "failed");
+    }
+  }
 
   async function restartService(kind: string, label: string) {
     const adminWarn =
@@ -72,6 +106,30 @@ export default function Dashboard() {
   return (
     <>
       <h1>{status.label}</h1>
+
+      {update?.update_available && (
+        <div className="update-banner">
+          <strong>Server update available: {update.latest}</strong>{" "}
+          <span className="dim">(you're on {update.current})</span>
+          {update.notes && <pre>{update.notes}</pre>}
+          <div style={{ marginTop: 10 }}>
+            <button className="primary" onClick={installUpdate}>
+              ↻ Download &amp; restart
+            </button>
+            {update.url && (
+              <a
+                href={update.url}
+                target="_blank"
+                rel="noreferrer"
+                style={{ marginLeft: 12 }}
+              >
+                Release notes ↗
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="cards">
         <div className="card">
           <div className="label">Version</div>

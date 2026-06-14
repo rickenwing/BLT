@@ -368,3 +368,61 @@ label.field span {
 .log-line.trace {
   color: var(--text-dim);
 }
+
+/* Folder picker modal (ENH-1) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--panel, #131c32);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 20px;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+}
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px;
+}
+.picker-row {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 10px;
+  border-radius: 6px;
+  width: 100%;
+}
+.picker-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Update banner (ENH-2) */
+.update-banner {
+  border: 1px solid var(--accent, #34d399);
+  background: rgba(52, 211, 153, 0.08);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.update-banner pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--text-dim);
+  max-height: 120px;
+  overflow: auto;
+  margin: 8px 0 0;
+}
