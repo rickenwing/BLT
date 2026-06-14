@@ -98,19 +98,37 @@ pub fn upsert_server(
     share: &str,
     now: i64,
 ) -> rusqlite::Result<()> {
-    if let Some(u) = uuid {
-        conn.execute(
-            "INSERT INTO servers(uuid,label,game_endpoint,share_endpoint,last_seen)
-             VALUES(?1,?2,?3,?4,?5)
-             ON CONFLICT(uuid) DO UPDATE SET label=?2, game_endpoint=?3, share_endpoint=?4, last_seen=?5",
-            params![u, label, game, share, now],
-        )?;
-    } else {
-        conn.execute(
-            "INSERT INTO servers(uuid,label,game_endpoint,share_endpoint,last_seen)
-             VALUES(NULL,?1,?2,?3,?4)",
-            params![label, game, share, now],
-        )?;
+    match uuid {
+        // Discovered (mDNS): adopt any manual (uuid-less) duplicate of the same
+        // endpoint so the same box never shows twice (BUG-2), then upsert by uuid.
+        Some(u) => {
+            conn.execute(
+                "DELETE FROM servers WHERE uuid IS NULL AND game_endpoint=?1",
+                params![game],
+            )?;
+            conn.execute(
+                "INSERT INTO servers(uuid,label,game_endpoint,share_endpoint,last_seen)
+                 VALUES(?1,?2,?3,?4,?5)
+                 ON CONFLICT(uuid) DO UPDATE SET label=?2, game_endpoint=?3, share_endpoint=?4, last_seen=?5",
+                params![u, label, game, share, now],
+            )?;
+        }
+        // Manual: dedup on endpoint — if any row (manual or discovered) already
+        // has it, just refresh last_seen; never pile up duplicates (BUG-2). Don't
+        // touch label/share on a match so a discovered row keeps its good data.
+        None => {
+            let touched = conn.execute(
+                "UPDATE servers SET last_seen=?2 WHERE game_endpoint=?1",
+                params![game, now],
+            )?;
+            if touched == 0 {
+                conn.execute(
+                    "INSERT INTO servers(uuid,label,game_endpoint,share_endpoint,last_seen)
+                     VALUES(NULL,?1,?2,?3,?4)",
+                    params![label, game, share, now],
+                )?;
+            }
+        }
     }
     Ok(())
 }
@@ -313,5 +331,28 @@ mod tests {
         let rows = list_servers(&conn).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label.as_deref(), Some("LAN2"));
+    }
+
+    #[test]
+    fn servers_dedup_manual_and_discovered_on_endpoint() {
+        let conn = open_memory().unwrap();
+        // Repeated manual connects to the same endpoint must not pile up (BUG-2).
+        upsert_server(&conn, None, "10.0.0.1:7400", "10.0.0.1:7400", "", 1).unwrap();
+        upsert_server(&conn, None, "10.0.0.1:7400", "10.0.0.1:7400", "", 2).unwrap();
+        assert_eq!(list_servers(&conn).unwrap().len(), 1);
+        // Discovery of the same box adopts the manual row (no duplicate).
+        upsert_server(
+            &conn,
+            Some("u1"),
+            "LAN",
+            "10.0.0.1:7400",
+            "10.0.0.1:7401",
+            3,
+        )
+        .unwrap();
+        let rows = list_servers(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].uuid.as_deref(), Some("u1"));
+        assert_eq!(rows[0].label.as_deref(), Some("LAN"));
     }
 }

@@ -4,6 +4,43 @@ import { api, formatUptime, Status } from "../api";
 export default function Dashboard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  async function restartService(kind: string, label: string) {
+    const adminWarn =
+      kind === "admin"
+        ? "\n\nThis briefly disconnects the admin panel — it reconnects on the same address."
+        : "";
+    if (
+      !confirm(
+        `Restart the ${label} service? In-flight requests finish first; clients reconnect automatically and downloads resume.${adminWarn}`,
+      )
+    )
+      return;
+    setActionMsg(null);
+    try {
+      await api.post(`/api/services/${kind}/restart`);
+      setActionMsg(`${label} service restart requested.`);
+    } catch (e) {
+      setActionMsg(e instanceof Error ? `Failed: ${e.message}` : "failed");
+    }
+  }
+
+  async function restartServer() {
+    if (
+      !confirm(
+        "Restart the entire server process? All connected clients drop for ~1–2s and reconnect; downloads resume from where they left off.",
+      )
+    )
+      return;
+    setActionMsg(null);
+    try {
+      await api.post("/api/server/restart");
+      setActionMsg("Server is restarting — this page will reconnect shortly…");
+    } catch (e) {
+      setActionMsg(e instanceof Error ? `Failed: ${e.message}` : "failed");
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -50,6 +87,8 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {actionMsg && <div className="dim">{actionMsg}</div>}
+
       <h2>Service bindings</h2>
       <div className="panel">
         <table>
@@ -59,11 +98,27 @@ export default function Dashboard() {
               <td>
                 <code>{status.binds.game_distribution}</code>
               </td>
+              <td style={{ textAlign: "right" }}>
+                <button
+                  style={{ padding: "4px 10px" }}
+                  onClick={() => restartService("game", "Game distribution")}
+                >
+                  ↻ Restart
+                </button>
+              </td>
             </tr>
             <tr>
               <td>Shared pool</td>
               <td>
                 <code>{status.binds.shared_pool}</code>
+              </td>
+              <td style={{ textAlign: "right" }}>
+                <button
+                  style={{ padding: "4px 10px" }}
+                  onClick={() => restartService("share", "Shared pool")}
+                >
+                  ↻ Restart
+                </button>
               </td>
             </tr>
             <tr>
@@ -71,9 +126,21 @@ export default function Dashboard() {
               <td>
                 <code>{status.binds.admin_panel}</code>
               </td>
+              <td style={{ textAlign: "right" }}>
+                <button
+                  style={{ padding: "4px 10px" }}
+                  onClick={() => restartService("admin", "Admin panel")}
+                >
+                  ↻ Restart
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
+        <p className="dim" style={{ marginBottom: 0 }}>
+          A service restart is graceful: in-flight requests finish, then it
+          rebinds on the same address. Use it to recover a wedged listener.
+        </p>
       </div>
 
       <h2>Storage paths</h2>
@@ -97,6 +164,18 @@ export default function Dashboard() {
         <p className="dim" style={{ marginBottom: 0 }}>
           Configure paths under Settings. Titles publish automatically once the
           library path is set and scanned.
+        </p>
+      </div>
+
+      <h2>Server control</h2>
+      <div className="panel">
+        <button className="danger" onClick={restartServer}>
+          ↻ Restart server process
+        </button>
+        <p className="dim" style={{ marginBottom: 0 }}>
+          Bounces the whole server (all three services). Connected clients drop
+          briefly and reconnect; downloads resume. Settings, library, and
+          jukebox state are preserved.
         </p>
       </div>
     </>

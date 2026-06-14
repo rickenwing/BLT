@@ -39,7 +39,15 @@ pub fn spawn(state: Shared, app: tauri::AppHandle) {
 }
 
 async fn run_once(state: &Shared, app: &tauri::AppHandle, game: &str) -> anyhow::Result<()> {
-    let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{game}/ws")).await?;
+    // Bound the connect: a dropped SYN (host briefly unreachable after a server
+    // restart, or a firewall re-evaluating the new process) would otherwise
+    // block the reconnect loop for the OS TCP timeout (~75s) with no retry —
+    // which reads as a permanent "reconnecting…" hang (HARD CONSTRAINT #12).
+    let connect = tokio_tungstenite::connect_async(format!("ws://{game}/ws"));
+    let (ws, _) = match tokio::time::timeout(Duration::from_secs(6), connect).await {
+        Ok(res) => res?,
+        Err(_) => anyhow::bail!("connect to {game} timed out"),
+    };
     info!("ws connected to {game}");
     let (mut sink, mut stream) = ws.split();
 
