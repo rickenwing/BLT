@@ -106,11 +106,24 @@ async fn spawn_listener(state: SharedState, kind: ServiceKind) -> Option<(Listen
             return None;
         }
     };
-    let listener = match TcpListener::bind(bind).await {
-        Ok(l) => l,
-        Err(e) => {
-            error!(?kind, %bind, "bind failed: {e}");
-            return None;
+    // Bind, retrying briefly on AddrInUse only — covers the small window when a
+    // full-process restart (Windows: spawn-new-then-exit-old) races the old
+    // socket's close. Permanent errors (bad/again-privileged address) fail fast.
+    let listener = {
+        let mut attempt = 0u32;
+        loop {
+            match TcpListener::bind(bind).await {
+                Ok(l) => break l,
+                Err(e) if attempt < 5 && e.kind() == std::io::ErrorKind::AddrInUse => {
+                    attempt += 1;
+                    warn!(?kind, %bind, "address in use (attempt {attempt}); retrying");
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+                Err(e) => {
+                    error!(?kind, %bind, "bind failed: {e}");
+                    return None;
+                }
+            }
         }
     };
     let addr = listener.local_addr().ok()?;
@@ -146,4 +159,38 @@ async fn spawn_listener(state: SharedState, kind: ServiceKind) -> Option<(Listen
         },
         addr,
     ))
+}
+
+/// Re-launch this binary in place — the engine behind the admin panel's
+/// "restart server" action. Diverges (never returns to the caller).
+///
+/// Unix: `execv` replaces the process image; the listening sockets are
+/// `CLOEXEC`, so the kernel closes them during the exec and the fresh image
+/// rebinds cleanly (no port race). Windows: spawn a new process and exit;
+/// `spawn_listener`'s short AddrInUse retry absorbs the brief overlap.
+///
+/// HARD CONSTRAINT #2: only ever called from an explicit, confirmed admin
+/// action — never automatically.
+pub fn reexec() -> ! {
+    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("blt-server"));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    warn!(exe = %exe.display(), ?args, "re-executing blt-server (admin restart)");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // exec() only returns if it failed to replace the image.
+        let err = std::process::Command::new(&exe).args(&args).exec();
+        error!("re-exec failed: {err}");
+        std::process::exit(1);
+    }
+    #[cfg(not(unix))]
+    {
+        match std::process::Command::new(&exe).args(&args).spawn() {
+            Ok(_) => std::process::exit(0),
+            Err(e) => {
+                error!("restart spawn failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 }

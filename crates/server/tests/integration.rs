@@ -632,6 +632,46 @@ async fn admin_auth_setup_login_gate() {
     assert!(r.status().is_success());
 }
 
+// BUG-1: the Settings page GETs /api/config and PUTs the whole object back.
+// Every field GET emits must survive that round-trip — `jukebox_order_mode`
+// used to 422 against `deny_unknown_fields`, making the whole form unsaveable.
+#[tokio::test]
+async fn config_get_put_roundtrip_succeeds() {
+    let srv = boot().await;
+    let http = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .expect("client");
+    let base = format!("http://{}", srv.admin);
+    http.post(format!("{base}/api/setup"))
+        .json(&serde_json::json!({"password": "hunter2"}))
+        .send()
+        .await
+        .expect("setup");
+
+    let cfg: serde_json::Value = http
+        .get(format!("{base}/api/config"))
+        .send()
+        .await
+        .expect("get config")
+        .json()
+        .await
+        .expect("json");
+    assert!(cfg.get("jukebox_order_mode").is_some(), "GET must emit it");
+
+    let r = http
+        .put(format!("{base}/api/config"))
+        .json(&cfg)
+        .send()
+        .await
+        .expect("put config");
+    assert!(
+        r.status().is_success(),
+        "full-object round-trip PUT must succeed, got {}",
+        r.status()
+    );
+}
+
 // ─────────────────── M6/M7: jukebox over WS + admin ────────────────
 
 async fn ws_connect(

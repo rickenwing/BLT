@@ -42,6 +42,8 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/interfaces", get(interfaces))
         .route("/api/config", get(get_config).put(put_config))
         .route("/api/scan", post(scan_now))
+        .route("/api/services/:kind/restart", post(restart_service))
+        .route("/api/server/restart", post(restart_server))
         .route("/api/titles", get(titles))
         .route("/api/titles/:id/label", put(set_label))
         .route("/api/shares", get(admin_shares))
@@ -301,6 +303,11 @@ struct ConfigPatch {
     db_backup_interval_secs: Option<u64>,
     peer_timeout_secs: Option<u64>,
     server_label: Option<String>,
+    // Accepted (and ignored) so the SPA's full-object round-trip validates:
+    // GET /api/config emits this, the Settings page PUTs the whole object back,
+    // and `deny_unknown_fields` would otherwise 422. The jukebox order mode is
+    // owned by PUT /api/jukebox/mode, not the Settings page. (BUG-1)
+    jukebox_order_mode: Option<String>,
 }
 
 /// `PUT /api/config` — persist (config.toml + SQLite mirror) and rebind only
@@ -322,8 +329,19 @@ async fn put_config(
     }
 
     let mut rebinds: Vec<ServiceKind> = Vec::new();
+    // Honour an order-mode round-tripped from the Settings page (normally
+    // unchanged; the Jukebox page is the real editor). Applied after the config
+    // lock to avoid holding it across the jukebox/broadcast locks. (BUG-1)
+    let mut new_order_mode: Option<OrderMode> = None;
     {
         let mut cfg = state.config.write();
+        if let Some(v) = patch.jukebox_order_mode {
+            let mode = OrderMode::from_str_lossy(&v);
+            if mode.as_str() != cfg.jukebox_order_mode {
+                cfg.jukebox_order_mode = mode.as_str().to_string();
+                new_order_mode = Some(mode);
+            }
+        }
         if let Some(v) = patch.game_distribution_bind {
             if v != cfg.game_distribution_bind {
                 cfg.game_distribution_bind = v;
@@ -389,6 +407,11 @@ async fn put_config(
         }
     }
 
+    if let Some(mode) = new_order_mode {
+        state.jukebox.lock().set_mode(mode);
+        state.broadcast_jukebox();
+    }
+
     for kind in &rebinds {
         if let Some(tx) = state.rebind.get() {
             let _ = tx.send(*kind);
@@ -396,6 +419,53 @@ async fn put_config(
     }
     info!(?rebinds, "config updated");
     Ok(Json(json!({"ok": true, "rebinding": !rebinds.is_empty()})))
+}
+
+// ──────────────────────────── service control ──────────────────────
+
+/// `POST /api/services/:kind/restart` — safely restart one listener
+/// (`game`|`share`|`admin`) by re-triggering the supervisor's rebind path:
+/// graceful shutdown (in-flight requests drain) then a fresh bind on the same
+/// address. Clients auto-reconnect (HARD CONSTRAINT #12); downloads resume.
+async fn restart_service(
+    State(state): State<SharedState>,
+    AxPath(kind): AxPath<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let svc = match kind.as_str() {
+        "game" => ServiceKind::Game,
+        "share" => ServiceKind::Share,
+        "admin" => ServiceKind::Admin,
+        other => return Err(ApiError::BadRequest(format!("unknown service: {other}"))),
+    };
+    match state.rebind.get() {
+        Some(tx) => {
+            tx.send(svc)
+                .map_err(|_| ApiError::Internal("rebind channel closed".into()))?;
+            info!(?svc, "service restart requested via admin panel");
+            Ok(Json(json!({ "ok": true, "service": kind })))
+        }
+        None => Err(ApiError::Internal("supervisor not ready".into())),
+    }
+}
+
+/// `POST /api/server/restart` — bounce the whole process. Responds first, then
+/// checkpoints the DB and re-execs the binary (see `crate::reexec`). Disruptive
+/// → the SPA gates it behind a confirm (HARD CONSTRAINT #5); never automatic
+/// (HARD CONSTRAINT #2).
+async fn restart_server(State(state): State<SharedState>) -> ApiResult<Json<serde_json::Value>> {
+    info!("full server restart requested via admin panel");
+    {
+        // Best-effort WAL checkpoint so the fresh process starts from a clean
+        // main DB file (#13 keeps WAL mode; this just truncates the log).
+        let conn = state.db.lock();
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+    // Defer so this 200 flushes to the admin before the image is replaced.
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        crate::reexec();
+    });
+    Ok(Json(json!({ "ok": true, "restarting": true })))
 }
 
 // ───────────────────────────── library ─────────────────────────────
