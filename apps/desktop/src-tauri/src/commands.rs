@@ -809,9 +809,14 @@ pub async fn share_download(
     let listing = server_api::share_listing(&share, share_id)
         .await
         .map_err(err)?;
-    let root = PathBuf::from(&dest_dir).join(
-        sanitize_rel_path(&listing.share.name).unwrap_or_else(|_| format!("share-{share_id}")),
-    );
+    // A single-file share writes straight into the chosen folder; only folder
+    // shares get their own sub-folder (avoid `movie.mp4/movie.mp4`).
+    let root = match listing.share.kind {
+        blt_core::protocol::ShareKind::File => PathBuf::from(&dest_dir),
+        blt_core::protocol::ShareKind::Folder => PathBuf::from(&dest_dir).join(
+            sanitize_rel_path(&listing.share.name).unwrap_or_else(|_| format!("share-{share_id}")),
+        ),
+    };
 
     // Sanitise + de-collide all paths on OUR side before any write (#11).
     let mut used: HashSet<String> = HashSet::new();
