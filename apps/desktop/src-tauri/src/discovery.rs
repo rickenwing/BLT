@@ -5,7 +5,7 @@
 use crate::db;
 use crate::state::Shared;
 use blt_core::discovery::{parse_txt, SERVICE_TYPE};
-use mdns_sd::{ServiceDaemon, ServiceEvent};
+use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent};
 use tauri::Emitter;
 use tracing::{info, warn};
 
@@ -18,6 +18,9 @@ pub fn spawn(state: Shared, app: tauri::AppHandle) {
                 return;
             }
         };
+        // IPv4-only discovery — skip IPv6 link-local interfaces (en0 fe80::,
+        // awdl0) that otherwise spew "Network is down" / address errors (NOISE-1).
+        let _ = daemon.disable_interface(IfKind::IPv6);
         let receiver = match daemon.browse(SERVICE_TYPE) {
             Ok(r) => r,
             Err(e) => {

@@ -6,7 +6,7 @@
 use crate::bindings::advertise_ip;
 use crate::state::SharedState;
 use blt_core::discovery::{build_txt, AdvertisedServer, SERVICE_TYPE};
-use mdns_sd::{ServiceDaemon, ServiceInfo};
+use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
 use tracing::{info, warn};
 
 /// Register (or re-register) the advertisement. Returns the daemon so the
@@ -40,6 +40,10 @@ pub fn advertise(state: &SharedState) -> Option<ServiceDaemon> {
             return None;
         }
     };
+    // Discovery is IPv4-only (the TXT contract carries IPv4 IP:port). Skip IPv6
+    // so the responder doesn't choke on link-local addrs (en0 fe80::, awdl0) and
+    // spew "Cannot find valid addrs ... V6(fe80::…)" every ~90s.
+    let _ = daemon.disable_interface(IfKind::IPv6);
 
     let txt = build_txt(&adv);
     let instance = format!("BLT-{}", &adv.uuid[..8.min(adv.uuid.len())]);
