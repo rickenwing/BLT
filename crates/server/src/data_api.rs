@@ -482,6 +482,11 @@ fn handle_client_msg(
                     &cid,
                     now_unix(),
                 )
+                .inspect(|&id| {
+                    // The submitter auto-upvotes their own pick (keyed on
+                    // client_id, #13).
+                    let _ = jb.toggle_vote(&conn, id, &cid);
+                })
             };
             match res {
                 Ok(id) => {

@@ -840,28 +840,15 @@ async fn jukebox_ws_add_vote_and_external_lane() {
         .expect("yt")
         .id;
 
-    // Vote keyed on client_id; voted_by_me reflected per viewer (F8.4).
-    let vote = serde_json::to_string(&ClientMsg::JukeboxVote { item_id: yt_id }).expect("ser");
-    player_tx
-        .send(tokio_tungstenite::tungstenite::Message::Text(vote))
-        .await
-        .expect("send");
-    let state = next_matching(&mut player_rx, |m| {
-        matches!(m, ServerMsg::Jukebox(s)
-            if s.up_next.iter().any(|i| i.id == yt_id && i.votes == 1))
-    })
-    .await;
-    let ServerMsg::Jukebox(snapshot) = state else {
-        unreachable!()
-    };
-    assert!(
-        snapshot
-            .up_next
-            .iter()
-            .find(|i| i.id == yt_id)
-            .expect("yt")
-            .voted_by_me
-    );
+    // The submitter auto-upvotes their own pick: the YouTube item already has
+    // 1 vote and voted_by_me for player-1 (votes key on client_id, F8.4/#13).
+    let yt = snapshot
+        .up_next
+        .iter()
+        .find(|i| i.id == yt_id)
+        .expect("yt");
+    assert_eq!(yt.votes, 1);
+    assert!(yt.voted_by_me);
 
     // Playback presses Next: the voted YouTube item starts (embedded).
     let next = serde_json::to_string(&ClientMsg::JukeboxNext).expect("ser");
