@@ -299,6 +299,29 @@ fn build_sources(state: &Shared, title_id: u64, manifest_ver: u32) -> Vec<PeerSo
         .collect()
 }
 
+/// Await `fut`, but bail early (returns `None`) the moment the job is paused or
+/// cancelled — polling the flags every 100ms. Wraps the in-flight fetch group
+/// and the retry backoff so Pause/Cancel feel instant even while a download is
+/// stalled or mid-fetch, without abandoning the retry-forever behaviour (F4.7).
+async fn until_interrupted<F>(active: &Active, fut: F) -> Option<F::Output>
+where
+    F: std::future::Future,
+{
+    tokio::pin!(fut);
+    loop {
+        tokio::select! {
+            out = &mut fut => return Some(out),
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                if active.paused.load(Ordering::SeqCst)
+                    || active.cancelled.load(Ordering::SeqCst)
+                {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
 async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::Result<()> {
     let game = state
         .connection
@@ -466,7 +489,17 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                     (loc.global_idx, source, res, started.elapsed().as_secs_f64())
                 }
             });
-            for (gidx, source, res, elapsed) in futures_util::future::join_all(futs).await {
+            // Race the group against the pause/cancel flags so the buttons don't
+            // feel dead while fetches are in flight (a hung fetch otherwise blocks
+            // up to the 30s per-chunk timeout). Interrupted → drop the in-flight
+            // fetches (no partial writes) and let the top of the loop exit.
+            let Some(results) =
+                until_interrupted(&active, futures_util::future::join_all(futs)).await
+            else {
+                persist(state, job, &bitmap, "active", None)?;
+                continue 'outer;
+            };
+            for (gidx, source, res, elapsed) in results {
                 if apply_result(
                     state,
                     job,
@@ -483,11 +516,6 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                     any_ok = true;
                     since_persist += 1;
                 }
-            }
-
-            if active.paused.load(Ordering::SeqCst) || active.cancelled.load(Ordering::SeqCst) {
-                persist(state, job, &bitmap, "active", None)?;
-                continue 'outer;
             }
         }
 
@@ -509,14 +537,18 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         }
 
         if !any_ok {
-            // Transient network trouble (Wi-Fi drop): retry with backoff and
-            // keep retrying — the download survives and continues (F4.7).
+            // Transient network trouble (Wi-Fi drop, server restarting): retry
+            // with backoff and keep retrying — the download survives (F4.7). The
+            // wait is interruptible so Pause/Cancel respond in ~100ms instead of
+            // feeling dead while we back off (the "can't cancel a stalled
+            // download" wedge).
             warn!(
                 title = job.title_id,
                 "no chunks succeeded; backing off {:?}", backoff
             );
+            report_activity(state, "stalled — retrying");
             persist(state, job, &bitmap, "active", None)?;
-            tokio::time::sleep(backoff).await;
+            until_interrupted(&active, tokio::time::sleep(backoff)).await;
             backoff = (backoff * 2).min(Duration::from_secs(30));
         } else {
             backoff = Duration::from_millis(500);
