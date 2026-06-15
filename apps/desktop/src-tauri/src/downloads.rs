@@ -399,7 +399,9 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     let mut backoff = Duration::from_millis(500);
     // Chunks are written through kept-open handles (PERF-2): per-chunk open/close
     // made Windows Defender re-scan the growing file and stalled the download.
-    let mut writer = PooledWriter::new(job.dest.clone());
+    // Held in an Option so it can be moved onto a blocking thread for each
+    // group's write (pipelined with the next group's fetch) and handed back.
+    let mut writer = Some(PooledWriter::new(job.dest.clone()));
 
     'outer: loop {
         if active.cancelled.load(Ordering::SeqCst) {
@@ -423,7 +425,9 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
             // files are missing/corrupt on disk (e.g. the folder was deleted),
             // clear those files' chunks and re-fetch them, rather than leaving a
             // full bitmap that re-fails validation forever (Resume self-heals).
-            writer.close_all(); // flush kept-open handles before reading them back
+            if let Some(w) = writer.as_mut() {
+                w.close_all(); // flush kept-open handles before reading them back
+            }
             finalize_layout(&manifest, &job.dest)?;
             let report = validate_quick(&manifest, &job.dest);
             if report.all_ok() {
@@ -469,19 +473,23 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         let batch: Vec<u64> = missing.iter().copied().take(64).collect();
         let assignments = assign(&batch, &sources, &SchedulerConfig::default());
 
-        // Fetch + verify + write the batch group-by-group, dropping each chunk's
-        // bytes right after it lands. Peak memory stays bounded to one in-flight
-        // group (FETCH_CONCURRENCY chunks) instead of the whole 64-chunk batch —
-        // important because chunk_size is server-configurable, so accumulating
-        // the batch could pin 64 × chunk_size in RAM.
+        // Fetch then write, group by group, but PIPELINED: one group's write runs
+        // on a blocking thread (so disk I/O never stalls the async loop) while the
+        // next group is being fetched, so the network doesn't idle during writes.
+        // Peak memory stays bounded to ~two groups (one fetching, one writing).
         let mut any_ok = false;
-        // PERF-2 instrumentation: split each 64-chunk batch into time spent
-        // fetching (network + server) vs verifying+writing (disk), so a slow
-        // download's logs show exactly which stage decays.
+        // Per-batch timing: fetch (network) vs write (disk). They overlap now, so
+        // the two sums can exceed wall time — that's expected; the split still
+        // shows where time goes and catches a write spike.
         let batch_started = Instant::now();
         let bytes_before = active.bytes_done.load(Ordering::SeqCst);
         let mut fetch_time = Duration::ZERO;
         let mut write_time = Duration::ZERO;
+        // The in-flight write of the previous group (returns the writer to reuse).
+        let mut pending: Option<
+            tokio::task::JoinHandle<(PooledWriter, Vec<WriteOutcome>, Duration)>,
+        > = None;
+
         for group in assignments.chunks(FETCH_CONCURRENCY) {
             let futs = group.iter().map(|(gidx, source)| {
                 let loc = locators[*gidx as usize].clone();
@@ -500,39 +508,90 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                     (loc.global_idx, source, res, started.elapsed().as_secs_f64())
                 }
             });
-            // Race the group against the pause/cancel flags so the buttons don't
-            // feel dead while fetches are in flight (a hung fetch otherwise blocks
-            // up to the 30s per-chunk timeout). Interrupted → drop the in-flight
-            // fetches (no partial writes) and let the top of the loop exit.
+            // Interruptible fetch (Pause/Cancel respond in ~100ms). On interrupt a
+            // pending write finishes in the background; the loop top persists+exits.
             let fetch_at = Instant::now();
-            let Some(results) =
+            let Some(fetched) =
                 until_interrupted(&active, futures_util::future::join_all(futs)).await
             else {
                 persist(state, job, &bitmap, "active", None)?;
                 continue 'outer;
             };
             fetch_time += fetch_at.elapsed();
-            let write_at = Instant::now();
-            for (gidx, source, res, elapsed) in results {
-                if apply_result(
+
+            // Account fetch failures now; collect the good chunks for writing.
+            let mut jobs: Vec<WriteJob> = Vec::with_capacity(fetched.len());
+            for (gidx, source, res, elapsed) in fetched {
+                match res {
+                    Ok(bytes) => jobs.push(WriteJob {
+                        loc: locators[gidx as usize].clone(),
+                        source,
+                        bytes,
+                        fetch_elapsed: elapsed,
+                    }),
+                    Err(e) => {
+                        warn!(chunk = gidx, %source, "chunk fetch failed: {e}");
+                        *failures.entry(source).or_insert(0) += 1;
+                    }
+                }
+            }
+
+            // Collect the previous group's write (it ran during this fetch).
+            if let Some(h) = pending.take() {
+                let Some(joined) = until_interrupted(&active, h).await else {
+                    persist(state, job, &bitmap, "active", None)?;
+                    continue 'outer;
+                };
+                let (w, outs, wt) =
+                    joined.map_err(|e| anyhow::anyhow!("write task failed: {e}"))?;
+                writer = Some(w);
+                write_time += wt;
+                for o in outs {
+                    if account_write(
+                        state,
+                        &mut bitmap,
+                        &active,
+                        &mut failures,
+                        &mut window_bytes,
+                        o,
+                    ) {
+                        any_ok = true;
+                        since_persist += 1;
+                    }
+                }
+            }
+
+            // Hand this group's write to a blocking thread and move on to fetch.
+            if !jobs.is_empty() {
+                let w = writer.take().expect("writer available between groups");
+                pending = Some(tokio::task::spawn_blocking(move || write_group(w, jobs)));
+            }
+        }
+
+        // Drain the final in-flight write of the batch.
+        if let Some(h) = pending.take() {
+            let Some(joined) = until_interrupted(&active, h).await else {
+                persist(state, job, &bitmap, "active", None)?;
+                continue 'outer;
+            };
+            let (w, outs, wt) = joined.map_err(|e| anyhow::anyhow!("write task failed: {e}"))?;
+            writer = Some(w);
+            write_time += wt;
+            for o in outs {
+                if account_write(
                     state,
-                    &mut writer,
-                    &locators,
                     &mut bitmap,
                     &active,
                     &mut failures,
                     &mut window_bytes,
-                    gidx,
-                    source,
-                    res,
-                    elapsed,
+                    o,
                 ) {
                     any_ok = true;
                     since_persist += 1;
                 }
             }
-            write_time += write_at.elapsed();
         }
+
         let batch_bytes = active
             .bytes_done
             .load(Ordering::SeqCst)
@@ -546,7 +605,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                 fetch_ms = fetch_time.as_millis() as u64,
                 write_ms = write_time.as_millis() as u64,
                 mb_s = format!("{:.1}", batch_bytes as f64 / 1_048_576.0 / batch_s),
-                "PERF-2 batch"
+                "download throughput"
             );
         }
 
@@ -605,50 +664,76 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     Ok(())
 }
 
-/// Verify-and-write one fetched chunk; updates bitmap/progress/failure book-
-/// keeping. Returns true when the chunk was accepted.
-#[allow(clippy::too_many_arguments)]
-fn apply_result(
-    state: &Shared,
-    writer: &mut PooledWriter,
-    locators: &[ChunkLocator],
-    bitmap: &mut Bitmap,
-    active: &Arc<Active>,
-    failures: &mut HashMap<String, u32>,
-    window_bytes: &mut u64,
+/// A fetched, verified-on-write chunk handed to the blocking writer.
+struct WriteJob {
+    loc: ChunkLocator,
+    source: String,
+    bytes: Vec<u8>,
+    fetch_elapsed: f64,
+}
+
+/// The result of writing one chunk, for accounting back on the async side.
+struct WriteOutcome {
     gidx: u64,
     source: String,
-    res: Result<Vec<u8>, String>,
-    elapsed: f64,
+    size: u64,
+    fetch_elapsed: f64,
+    written: Result<(), String>,
+}
+
+/// Write a group of fetched chunks through the pooled writer. Runs on a blocking
+/// thread (so disk I/O never stalls the async loop) and hands the writer back so
+/// the next group reuses the kept-open handles. HARD CONSTRAINT #1 holds: each
+/// chunk is BLAKE3-verified before any byte is written.
+fn write_group(
+    mut writer: PooledWriter,
+    jobs: Vec<WriteJob>,
+) -> (PooledWriter, Vec<WriteOutcome>, Duration) {
+    let t = Instant::now();
+    let mut outs = Vec::with_capacity(jobs.len());
+    for j in jobs {
+        let written = writer
+            .verify_and_write(&j.loc.rel_path, j.loc.offset, &j.bytes, &j.loc.hash)
+            .map_err(|e| e.to_string());
+        outs.push(WriteOutcome {
+            gidx: j.loc.global_idx,
+            source: j.source,
+            size: j.loc.size,
+            fetch_elapsed: j.fetch_elapsed,
+            written,
+        });
+    }
+    (writer, outs, t.elapsed())
+}
+
+/// Fold one completed write into the bitmap / progress / failure bookkeeping.
+/// Returns true when the chunk was accepted (only then is its bitmap bit set —
+/// an interrupted/unaccounted write is simply re-fetched on resume).
+fn account_write(
+    state: &Shared,
+    bitmap: &mut Bitmap,
+    active: &Active,
+    failures: &mut HashMap<String, u32>,
+    window_bytes: &mut u64,
+    out: WriteOutcome,
 ) -> bool {
-    let loc = &locators[gidx as usize];
-    match res {
-        Ok(bytes) => {
-            // HARD CONSTRAINT #1: BLAKE3-verify before write; a bad chunk is
-            // refetched elsewhere, never written. Written through a kept-open
-            // pooled handle (PERF-2: avoids per-chunk open/close + Defender scan).
-            match writer.verify_and_write(&loc.rel_path, loc.offset, &bytes, &loc.hash) {
-                Ok(()) => {
-                    bitmap.set(gidx);
-                    active.have.fetch_add(1, Ordering::SeqCst);
-                    active.bytes_done.fetch_add(loc.size, Ordering::SeqCst);
-                    *window_bytes += loc.size;
-                    if source != SERVER_SOURCE_ID {
-                        state.downloads.record_rate(&source, loc.size, elapsed);
-                    }
-                    failures.remove(&source);
-                    true
-                }
-                Err(e) => {
-                    warn!(chunk = gidx, %source, "chunk rejected: {e}");
-                    *failures.entry(source).or_insert(0) += 1;
-                    false
-                }
+    match out.written {
+        Ok(()) => {
+            bitmap.set(out.gidx);
+            active.have.fetch_add(1, Ordering::SeqCst);
+            active.bytes_done.fetch_add(out.size, Ordering::SeqCst);
+            *window_bytes += out.size;
+            if out.source != SERVER_SOURCE_ID {
+                state
+                    .downloads
+                    .record_rate(&out.source, out.size, out.fetch_elapsed);
             }
+            failures.remove(&out.source);
+            true
         }
         Err(e) => {
-            warn!(chunk = gidx, %source, "chunk fetch failed: {e}");
-            *failures.entry(source).or_insert(0) += 1;
+            warn!(chunk = out.gidx, source = %out.source, "chunk rejected: {e}");
+            *failures.entry(out.source).or_insert(0) += 1;
             false
         }
     }
