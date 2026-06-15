@@ -6,6 +6,7 @@ pub mod db;
 pub mod discovery;
 pub mod downloads;
 pub mod freespace;
+pub mod media_proxy;
 pub mod scripts;
 pub mod server_api;
 pub mod state;
@@ -65,6 +66,7 @@ pub fn run() {
         downloads: downloads::DownloadManager::default(),
         ws_out: parking_lot::RwLock::new(None),
         seed_port: parking_lot::RwLock::new(None),
+        media_port: parking_lot::RwLock::new(None),
         app: std::sync::OnceLock::new(),
         xfers: parking_lot::Mutex::new(std::collections::HashMap::new()),
         xfer_seq: std::sync::atomic::AtomicU64::new(1),
@@ -136,6 +138,7 @@ pub fn run() {
             commands::update_check,
             commands::update_install,
             commands::active_transfers,
+            commands::media_proxy_port,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -150,6 +153,11 @@ pub fn run() {
             let seed_state = boot_state.clone();
             tauri::async_runtime::spawn(async move {
                 chunk_server::start(seed_state).await;
+            });
+            // Loopback YouTube embed proxy (YouTube Error 153 workaround).
+            let media_state = boot_state.clone();
+            tauri::async_runtime::spawn(async move {
+                media_proxy::start(media_state).await;
             });
             Ok(())
         })

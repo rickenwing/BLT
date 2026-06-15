@@ -151,83 +151,42 @@ export default function Playback({ boot }: { boot: AppBootState }) {
   );
 }
 
-/** Embedded YouTube via the IFrame API; `ended` → auto-advance (F9.3). */
-declare global {
-  interface Window {
-    YT?: any;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
+/**
+ * Embedded YouTube. The player runs inside a tiny page served over
+ * `http://127.0.0.1:<port>` by the Rust media proxy, NOT directly in the webview
+ * — `tauri://localhost` can't send a valid HTTP Referer, which YouTube now
+ * rejects with Error 153. The localhost page gives it a real http origin. It
+ * posts `{blt:"ended"|"error"}` back here so the jukebox auto-advances (F9.3).
+ */
 function YouTubePlayer({ item }: { item: JukeboxItem }) {
-  const holder = useRef<HTMLDivElement>(null);
   const vid = youtubeId(item.ref);
-  const [loadError, setLoadError] = useState(false);
+  const [port, setPort] = useState<number | null>(null);
+  const [portError, setPortError] = useState(false);
 
   useEffect(() => {
-    if (!vid || !holder.current) return;
-    let player: any;
-    let cancelled = false;
-
-    // YT.Player REPLACES its target element with an <iframe>. Mount it on a
-    // throwaway child div — NOT the React-managed holder — so React re-renders
-    // (the playback view re-renders on every jukebox WS broadcast) don't fight
-    // YT over the same DOM node and blow the iframe away, which left the stage
-    // blank after Play.
-    const mount = document.createElement("div");
-    holder.current.innerHTML = "";
-    holder.current.appendChild(mount);
-
-    function create() {
-      if (cancelled) return;
-      player = new window.YT.Player(mount, {
-        videoId: vid,
-        playerVars: { autoplay: 1, rel: 0 },
-        events: {
-          onReady: () => setLoadError(false),
-          onStateChange: (e: { data: number }) => {
-            if (e.data === 0 /* ended */) {
-              void api.jukeboxEnded();
-            }
-          },
-          onError: () => {
-            // Unplayable video: advance rather than stalling the party.
-            void api.jukeboxEnded();
-          },
-        },
-      });
-    }
-
-    if (window.YT?.Player) {
-      create();
-    } else {
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      tag.onerror = () => setLoadError(true);
-      document.head.appendChild(tag);
-      const prev = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        prev?.();
-        create();
-      };
-    }
-    // No blank screens: if the IFrame API never initialises (no internet /
-    // blocked), surface it so the operator knows why instead of staring at a
-    // black stage.
-    const watchdog = window.setTimeout(() => {
-      if (!cancelled && !window.YT?.Player) setLoadError(true);
-    }, 12000);
-
+    let live = true;
+    api
+      .mediaProxyPort()
+      .then((p) => {
+        if (!live) return;
+        if (p) setPort(p);
+        else setPortError(true);
+      })
+      .catch(() => live && setPortError(true));
     return () => {
-      cancelled = true;
-      window.clearTimeout(watchdog);
-      try {
-        player?.destroy();
-      } catch {
-        /* ignore */
-      }
+      live = false;
     };
-  }, [vid]);
+  }, []);
+
+  // Advance on end / unplayable video, reported by the localhost embed page.
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      const m = (e.data && (e.data as { blt?: string }).blt) || null;
+      if (m === "ended" || m === "error") void api.jukeboxEnded();
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   if (!vid) {
     return (
@@ -237,19 +196,28 @@ function YouTubePlayer({ item }: { item: JukeboxItem }) {
       </div>
     );
   }
-  if (loadError) {
+  if (portError) {
     return (
       <div className="external-card">
-        <div className="big">Couldn't load YouTube</div>
+        <div className="big">Couldn't start the YouTube player</div>
         <p className="dim">
-          This machine needs internet to play YouTube. Check its connection,
-          then press Next.
+          The local media helper isn't available. Restart the app, then press
+          Next.
         </p>
         <p className="dim">{item.ref}</p>
       </div>
     );
   }
-  return <div ref={holder} style={{ width: "100%", height: "100%" }} />;
+  if (port == null) return <div className="external-card dim">Loading…</div>;
+  return (
+    <iframe
+      key={vid}
+      src={`http://127.0.0.1:${port}/yt?v=${encodeURIComponent(vid)}`}
+      allow="autoplay; encrypted-media; fullscreen"
+      allowFullScreen
+      style={{ width: "100%", height: "100%", border: 0 }}
+    />
+  );
 }
 
 /** Direct URLs + shared-pool files stream straight into an HTML5 video

@@ -144,6 +144,9 @@ pub struct ClientState {
     pub ws_out: RwLock<Option<tokio::sync::mpsc::UnboundedSender<blt_core::protocol::ClientMsg>>>,
     /// Local chunk-server port when seeding (share_back on).
     pub seed_port: RwLock<Option<u16>>,
+    /// Localhost media-proxy port (serves the YouTube embed page over http so
+    /// the player gets a valid origin/Referer — YouTube Error 153 workaround).
+    pub media_port: RwLock<Option<u16>>,
     /// App handle for emitting events (set in `setup`).
     pub app: OnceLock<AppHandle>,
     /// Active shared-pool transfers (uploads + downloads), keyed by id.

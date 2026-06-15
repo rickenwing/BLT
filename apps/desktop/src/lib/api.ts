@@ -251,6 +251,7 @@ export const api = {
   jukeboxVote: (itemId: number) => invoke<void>("jukebox_vote", { itemId }),
   jukeboxNext: () => invoke<void>("jukebox_next"),
   jukeboxEnded: () => invoke<void>("jukebox_ended"),
+  mediaProxyPort: () => invoke<number | null>("media_proxy_port"),
   roster: () => invoke<RosterEntry[]>("roster"),
   resolveShareStream: (shareId: number) => invoke<string>("resolve_share_stream", { shareId }),
 

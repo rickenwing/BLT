@@ -420,6 +420,14 @@ pub fn downloads_snapshot(state: State<'_, Shared>) -> Vec<downloads::QueueEntry
     state.downloads.snapshot(state.inner())
 }
 
+/// Loopback port of the YouTube embed proxy (Error 153 workaround). The
+/// playback UI loads `http://127.0.0.1:<port>/yt?v=<id>` in an iframe so the
+/// player gets a valid http origin.
+#[tauri::command]
+pub fn media_proxy_port(state: State<'_, Shared>) -> Option<u16> {
+    *state.media_port.read()
+}
+
 /// Unified active-transfer list for the sidebar + title-bar indicator: in-flight
 /// game downloads plus shared-pool uploads/downloads, in one uniform shape.
 #[tauri::command]
