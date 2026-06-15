@@ -23,12 +23,23 @@ impl From<reqwest::Error> for ApiError {
     }
 }
 
+/// Shared HTTP client — **reuse one** across all requests. reqwest pools
+/// keep-alive connections per Client (clones share the pool), so building a new
+/// Client per call (as before) opened a fresh TCP connection for every chunk
+/// fetch — thousands of them on a large download — piling up TIME_WAIT sockets
+/// until ephemeral ports ran short and throughput decayed (a client restart
+/// cleared them). That was the slow-large-download stall.
 pub fn http() -> reqwest::Client {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(120))
-        .build()
-        .unwrap_or_default()
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(120))
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
 }
 
 fn check(status: reqwest::StatusCode) -> Result<(), ApiError> {
