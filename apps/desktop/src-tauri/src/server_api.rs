@@ -136,6 +136,7 @@ pub async fn download_share_file(
     id: u64,
     rel: &str,
     dest: &std::path::Path,
+    mut on_progress: impl FnMut(u64),
 ) -> Result<u64, ApiError> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
@@ -162,6 +163,7 @@ pub async fn download_share_file(
             .await
             .map_err(|e| ApiError::Network(format!("write: {e}")))?;
         written += bytes.len() as u64;
+        on_progress(written);
     }
     f.flush()
         .await

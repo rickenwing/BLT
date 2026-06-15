@@ -99,6 +99,15 @@ export interface QueueEntry {
   error: string | null;
 }
 
+export interface TransferRow {
+  id: string;
+  kind: "game-download" | "share-download" | "share-upload";
+  label: string;
+  done: number;
+  total: number;
+  speed_bps: number;
+}
+
 export interface ValidationOut {
   all_ok: boolean;
   ok_count: number;
@@ -214,6 +223,7 @@ export const api = {
     invoke<void>("resume_download", { titleId, manifestVer, titleName }),
   cancelDownload: (titleId: number) => invoke<void>("cancel_download", { titleId }),
   downloadsSnapshot: () => invoke<QueueEntry[]>("downloads_snapshot"),
+  activeTransfers: () => invoke<TransferRow[]>("active_transfers"),
   validateTitle: (titleId: number, deep: boolean) =>
     invoke<ValidationOut>("validate_title", { titleId, deep }),
   repairTitle: (titleId: number, titleName: string) =>

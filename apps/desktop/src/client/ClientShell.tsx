@@ -7,6 +7,7 @@ import Jukebox from "./Jukebox";
 import People from "./People";
 import Settings from "./Settings";
 import LogView from "./Log";
+import Transfers from "./Transfers";
 
 type Page = "library" | "downloads" | "shares" | "jukebox" | "people" | "settings" | "log";
 
@@ -79,6 +80,7 @@ export default function ClientShell({ boot }: { boot: AppBootState }) {
           ))}
         </nav>
         <div className="spacer" />
+        <Transfers />
         {update && (
           <nav className="nav">
             <button onClick={() => setPage("settings")}>

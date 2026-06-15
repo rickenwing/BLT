@@ -65,6 +65,9 @@ pub fn run() {
         downloads: downloads::DownloadManager::default(),
         ws_out: parking_lot::RwLock::new(None),
         seed_port: parking_lot::RwLock::new(None),
+        app: std::sync::OnceLock::new(),
+        xfers: parking_lot::Mutex::new(std::collections::HashMap::new()),
+        xfer_seq: std::sync::atomic::AtomicU64::new(1),
     });
 
     // Reconnect to the last server automatically (F3.4).
@@ -131,11 +134,14 @@ pub fn run() {
             commands::external_open,
             commands::update_check,
             commands::update_install,
+            commands::active_transfers,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
             // Keep the logging guard alive for the app lifetime.
             Box::leak(Box::new(log_guard));
+            // Let state emit events (transfer progress, etc.).
+            let _ = boot_state.app.set(handle.clone());
 
             // Background services: WS live channel, mDNS browse, seed server.
             ws::spawn(boot_state.clone(), handle.clone());

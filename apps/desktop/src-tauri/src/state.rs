@@ -7,7 +7,10 @@ use blt_core::runtime::ComponentDirs;
 use parking_lot::{Mutex, RwLock};
 use rusqlite::Connection;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::Instant;
+use tauri::{AppHandle, Emitter};
 
 /// Durable settings (mirrored from the client DB at startup, written through).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -141,14 +144,107 @@ pub struct ClientState {
     pub ws_out: RwLock<Option<tokio::sync::mpsc::UnboundedSender<blt_core::protocol::ClientMsg>>>,
     /// Local chunk-server port when seeding (share_back on).
     pub seed_port: RwLock<Option<u16>>,
+    /// App handle for emitting events (set in `setup`).
+    pub app: OnceLock<AppHandle>,
+    /// Active shared-pool transfers (uploads + downloads), keyed by id.
+    pub xfers: Mutex<HashMap<u64, ShareXfer>>,
+    pub xfer_seq: AtomicU64,
 }
 
 pub type Shared = Arc<ClientState>;
+
+/// One in-flight shared-pool transfer (games have their own DownloadManager).
+pub struct ShareXfer {
+    pub kind: &'static str, // "share-download" | "share-upload"
+    pub label: String,
+    pub total: u64,
+    pub done: u64,
+    pub speed_bps: u64,
+    last_t: Instant,
+    last_bytes: u64,
+}
+
+/// Uniform transfer row for the sidebar/title-bar indicator (games + shares).
+#[derive(serde::Serialize)]
+pub struct TransferRow {
+    pub id: String,
+    pub kind: String, // "game-download" | "share-download" | "share-upload"
+    pub label: String,
+    pub done: u64,
+    pub total: u64,
+    pub speed_bps: u64,
+}
 
 impl ClientState {
     pub fn send_ws(&self, msg: blt_core::protocol::ClientMsg) {
         if let Some(tx) = self.ws_out.read().as_ref() {
             let _ = tx.send(msg);
         }
+    }
+
+    fn emit_transfers(&self) {
+        if let Some(a) = self.app.get() {
+            let _ = a.emit("transfers-changed", ());
+        }
+    }
+
+    /// Register a new share transfer; returns its id.
+    pub fn xfer_begin(&self, kind: &'static str, label: &str, total: u64) -> u64 {
+        let id = self.xfer_seq.fetch_add(1, Ordering::SeqCst);
+        self.xfers.lock().insert(
+            id,
+            ShareXfer {
+                kind,
+                label: label.to_string(),
+                total,
+                done: 0,
+                speed_bps: 0,
+                last_t: Instant::now(),
+                last_bytes: 0,
+            },
+        );
+        self.emit_transfers();
+        id
+    }
+
+    /// Update bytes done; recomputes a smoothed speed at most twice a second.
+    /// Cheap enough to call per chunk (no event emit here — the UI polls).
+    pub fn xfer_update(&self, id: u64, done: u64) {
+        let mut m = self.xfers.lock();
+        if let Some(x) = m.get_mut(&id) {
+            let dt = x.last_t.elapsed().as_secs_f64();
+            if dt >= 0.5 {
+                let inst = (done.saturating_sub(x.last_bytes) as f64 / dt) as u64;
+                x.speed_bps = if x.speed_bps == 0 {
+                    inst
+                } else {
+                    (x.speed_bps * 3 + inst * 2) / 5 // light EWMA
+                };
+                x.last_t = Instant::now();
+                x.last_bytes = done;
+            }
+            x.done = done;
+        }
+    }
+
+    /// Finish a share transfer (success or failure both just drop it).
+    pub fn xfer_end(&self, id: u64) {
+        self.xfers.lock().remove(&id);
+        self.emit_transfers();
+    }
+
+    pub fn share_transfers(&self) -> Vec<TransferRow> {
+        self.xfers
+            .lock()
+            .iter()
+            .map(|(id, x)| TransferRow {
+                id: format!("share-{id}"),
+                kind: x.kind.to_string(),
+                label: x.label.clone(),
+                done: x.done,
+                total: x.total,
+                speed_bps: x.speed_bps,
+            })
+            .collect()
     }
 }

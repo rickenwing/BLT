@@ -375,6 +375,31 @@ pub fn downloads_snapshot(state: State<'_, Shared>) -> Vec<downloads::QueueEntry
     state.downloads.snapshot(state.inner())
 }
 
+/// Unified active-transfer list for the sidebar + title-bar indicator: in-flight
+/// game downloads plus shared-pool uploads/downloads, in one uniform shape.
+#[tauri::command]
+pub fn active_transfers(state: State<'_, Shared>) -> Vec<crate::state::TransferRow> {
+    let mut out: Vec<crate::state::TransferRow> = Vec::new();
+    for q in state.downloads.snapshot(state.inner()) {
+        if q.status == "active" || q.status == "pausing" {
+            out.push(crate::state::TransferRow {
+                id: format!("game-{}", q.title_id),
+                kind: "game-download".to_string(),
+                label: if q.name.is_empty() {
+                    format!("Title #{}", q.title_id)
+                } else {
+                    q.name.clone()
+                },
+                done: q.bytes_done,
+                total: q.bytes_total,
+                speed_bps: q.speed_bps,
+            });
+        }
+    }
+    out.extend(state.share_transfers());
+    out
+}
+
 #[derive(Serialize)]
 pub struct ValidationOut {
     pub all_ok: bool,
@@ -601,34 +626,74 @@ pub async fn share_upload(state: State<'_, Shared>, paths: Vec<String>) -> Cmd<u
         let s = state.settings.read();
         (s.client_id.clone(), s.display_name.clone())
     };
+    // Progress indicator: pre-flight the total bytes per path (upload reports at
+    // per-item granularity — within-item % needs a streaming multipart body).
+    let path_bytes: Vec<u64> = paths
+        .iter()
+        .map(|p| {
+            let path = PathBuf::from(p);
+            if path.is_dir() {
+                let mut files = Vec::new();
+                let _ = collect_tree(&path, &path, &mut files);
+                files
+                    .iter()
+                    .filter_map(|(a, _)| std::fs::metadata(a).ok())
+                    .map(|m| m.len())
+                    .sum()
+            } else {
+                std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+            }
+        })
+        .collect();
+    let total: u64 = path_bytes.iter().sum();
+    let label = if paths.len() == 1 {
+        PathBuf::from(&paths[0])
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("upload")
+            .to_string()
+    } else {
+        format!("{} items", paths.len())
+    };
+    let xfer = state.xfer_begin("share-upload", &label, total);
+
     let mut uploaded = 0usize;
-    for p in paths {
-        let path = PathBuf::from(&p);
-        if path.is_dir() {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Shared Folder")
-                .to_string();
-            let mut files = Vec::new();
-            collect_tree(&path, &path, &mut files).map_err(err)?;
-            server_api::upload_share(&share, &client_id, &name, "folder", &owner, &files)
-                .await
-                .map_err(err)?;
-            uploaded += 1;
-        } else if path.is_file() {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .to_string();
-            let files = vec![(path.clone(), name.clone())];
-            server_api::upload_share(&share, &client_id, &name, "file", &owner, &files)
-                .await
-                .map_err(err)?;
-            uploaded += 1;
+    let mut done = 0u64;
+    let up: Result<(), String> = async {
+        for (idx, p) in paths.iter().enumerate() {
+            let path = PathBuf::from(p);
+            if path.is_dir() {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Shared Folder")
+                    .to_string();
+                let mut files = Vec::new();
+                collect_tree(&path, &path, &mut files).map_err(err)?;
+                server_api::upload_share(&share, &client_id, &name, "folder", &owner, &files)
+                    .await
+                    .map_err(err)?;
+                uploaded += 1;
+            } else if path.is_file() {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file")
+                    .to_string();
+                let files = vec![(path.clone(), name.clone())];
+                server_api::upload_share(&share, &client_id, &name, "file", &owner, &files)
+                    .await
+                    .map_err(err)?;
+                uploaded += 1;
+            }
+            done += path_bytes[idx];
+            state.xfer_update(xfer, done);
         }
+        Ok(())
     }
+    .await;
+    state.xfer_end(xfer);
+    up?;
     Ok(uploaded)
 }
 
@@ -697,19 +762,35 @@ pub async fn share_download(
         plan.push((f.rel_path.clone(), safe, f.size));
     }
 
-    for (remote_rel, safe_rel, size) in &plan {
-        let dest = blt_core::transfer::safe_join(&root, safe_rel).map_err(err)?;
-        if only_missing {
-            if let Ok(meta) = std::fs::metadata(&dest) {
-                if meta.len() == *size {
-                    continue; // already complete
+    // Progress indicator (sidebar + title bar): total bytes across the plan.
+    let total: u64 = plan.iter().map(|(_, _, s)| *s).sum();
+    let xfer = state.xfer_begin("share-download", &listing.share.name, total);
+    let mut base = 0u64;
+    let dl: Result<(), String> = async {
+        for (remote_rel, safe_rel, size) in &plan {
+            let dest = blt_core::transfer::safe_join(&root, safe_rel).map_err(err)?;
+            if only_missing {
+                if let Ok(meta) = std::fs::metadata(&dest) {
+                    if meta.len() == *size {
+                        base += *size;
+                        state.xfer_update(xfer, base);
+                        continue; // already complete
+                    }
                 }
             }
-        }
-        server_api::download_share_file(&share, share_id, remote_rel, &dest)
+            server_api::download_share_file(&share, share_id, remote_rel, &dest, |w| {
+                state.xfer_update(xfer, base + w);
+            })
             .await
             .map_err(err)?;
+            base += *size;
+            state.xfer_update(xfer, base);
+        }
+        Ok(())
     }
+    .await;
+    state.xfer_end(xfer);
+    dl?;
 
     // Quick completeness: every expected file present at expected size (F6.8).
     let entries: Vec<(String, u64)> = plan
