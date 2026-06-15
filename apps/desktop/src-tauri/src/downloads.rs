@@ -30,9 +30,6 @@ const PERSIST_EVERY: u64 = 32;
 /// Per-source consecutive-failure limit before the source is dropped (F15.3).
 const SOURCE_FAILURE_LIMIT: u32 = 3;
 
-/// One fetched chunk: `(global_idx, source_id, bytes-or-error, elapsed_secs)`.
-type FetchOutcome = (u64, String, Result<Vec<u8>, String>, f64);
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QueueEntry {
     pub title_id: u64,
@@ -405,8 +402,12 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         let batch: Vec<u64> = missing.iter().copied().take(64).collect();
         let assignments = assign(&batch, &sources, &SchedulerConfig::default());
 
-        // Fetch the batch with bounded concurrency.
-        let mut results: Vec<FetchOutcome> = Vec::new();
+        // Fetch + verify + write the batch group-by-group, dropping each chunk's
+        // bytes right after it lands. Peak memory stays bounded to one in-flight
+        // group (FETCH_CONCURRENCY chunks) instead of the whole 64-chunk batch —
+        // important because chunk_size is server-configurable, so accumulating
+        // the batch could pin 64 × chunk_size in RAM.
+        let mut any_ok = false;
         for group in assignments.chunks(FETCH_CONCURRENCY) {
             let futs = group.iter().map(|(gidx, source)| {
                 let loc = locators[*gidx as usize].clone();
@@ -425,47 +426,28 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                     (loc.global_idx, source, res, started.elapsed().as_secs_f64())
                 }
             });
-            results.extend(futures_util::future::join_all(futs).await);
+            for (gidx, source, res, elapsed) in futures_util::future::join_all(futs).await {
+                if apply_result(
+                    state,
+                    job,
+                    &locators,
+                    &mut bitmap,
+                    &active,
+                    &mut failures,
+                    &mut window_bytes,
+                    gidx,
+                    source,
+                    res,
+                    elapsed,
+                ) {
+                    any_ok = true;
+                    since_persist += 1;
+                }
+            }
 
             if active.paused.load(Ordering::SeqCst) || active.cancelled.load(Ordering::SeqCst) {
-                // Write what we have, then handle pause/cancel at loop top.
-                for (gidx, source, res, elapsed) in results.drain(..) {
-                    apply_result(
-                        state,
-                        job,
-                        &locators,
-                        &mut bitmap,
-                        &active,
-                        &mut failures,
-                        &mut window_bytes,
-                        gidx,
-                        source,
-                        res,
-                        elapsed,
-                    );
-                }
                 persist(state, job, &bitmap, "active", None)?;
                 continue 'outer;
-            }
-        }
-
-        let mut any_ok = false;
-        for (gidx, source, res, elapsed) in results {
-            if apply_result(
-                state,
-                job,
-                &locators,
-                &mut bitmap,
-                &active,
-                &mut failures,
-                &mut window_bytes,
-                gidx,
-                source,
-                res,
-                elapsed,
-            ) {
-                any_ok = true;
-                since_persist += 1;
             }
         }
 
