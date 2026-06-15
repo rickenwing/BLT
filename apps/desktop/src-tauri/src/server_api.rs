@@ -172,7 +172,9 @@ pub async fn download_share_file(
 }
 
 /// Upload files as one share. `files` are `(absolute_path, relative_path)`;
-/// folder shares carry their tree in the relative paths.
+/// folder shares carry their tree in the relative paths. Each file is streamed
+/// from disk (not buffered whole) and bumps `sent` as bytes go out, so the
+/// caller can show live upload progress + speed.
 pub async fn upload_share(
     share: &str,
     client_id: &str,
@@ -180,7 +182,10 @@ pub async fn upload_share(
     kind: &str,
     owner_name: &str,
     files: &[(std::path::PathBuf, String)],
+    sent: std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) -> Result<ShareSummary, ApiError> {
+    use futures_util::StreamExt;
+    use std::sync::atomic::Ordering;
     let mut form = reqwest::multipart::Form::new().part(
         "meta",
         reqwest::multipart::Part::text(
@@ -188,13 +193,25 @@ pub async fn upload_share(
         ),
     );
     for (abs, rel) in files {
-        let bytes = tokio::fs::read(abs)
+        let file = tokio::fs::File::open(abs)
             .await
-            .map_err(|e| ApiError::Network(format!("read {}: {e}", abs.display())))?;
-        form = form.part(
-            "file",
-            reqwest::multipart::Part::bytes(bytes).file_name(rel.clone()),
-        );
+            .map_err(|e| ApiError::Network(format!("open {}: {e}", abs.display())))?;
+        let len = file
+            .metadata()
+            .await
+            .map_err(|e| ApiError::Network(format!("stat {}: {e}", abs.display())))?
+            .len();
+        let counter = sent.clone();
+        let stream = tokio_util::io::ReaderStream::new(file).map(move |res| {
+            if let Ok(ref b) = res {
+                counter.fetch_add(b.len() as u64, Ordering::SeqCst);
+            }
+            res
+        });
+        let part =
+            reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), len)
+                .file_name(rel.clone());
+        form = form.part("file", part);
     }
     let r = http()
         .post(format!("http://{share}/shares"))

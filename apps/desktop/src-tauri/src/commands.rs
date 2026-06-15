@@ -662,7 +662,7 @@ pub async fn share_upload(state: State<'_, Shared>, paths: Vec<String>) -> Cmd<u
     let up: Result<(), String> = async {
         for (idx, p) in paths.iter().enumerate() {
             let path = PathBuf::from(p);
-            if path.is_dir() {
+            let (name, kind, files): (String, &str, Vec<(PathBuf, String)>) = if path.is_dir() {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -670,22 +670,37 @@ pub async fn share_upload(state: State<'_, Shared>, paths: Vec<String>) -> Cmd<u
                     .to_string();
                 let mut files = Vec::new();
                 collect_tree(&path, &path, &mut files).map_err(err)?;
-                server_api::upload_share(&share, &client_id, &name, "folder", &owner, &files)
-                    .await
-                    .map_err(err)?;
-                uploaded += 1;
+                (name, "folder", files)
             } else if path.is_file() {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("file")
                     .to_string();
-                let files = vec![(path.clone(), name.clone())];
-                server_api::upload_share(&share, &client_id, &name, "file", &owner, &files)
-                    .await
-                    .map_err(err)?;
-                uploaded += 1;
-            }
+                (name.clone(), "file", vec![(path.clone(), name)])
+            } else {
+                continue;
+            };
+
+            // Stream the upload and poll the sent-byte counter into the transfer
+            // indicator (live % + speed for uploads, not just per-item).
+            let sent = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let base_now = done;
+            let st = state.inner().clone();
+            let counter = sent.clone();
+            let poll = tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    let s = counter.load(std::sync::atomic::Ordering::SeqCst);
+                    st.xfer_update(xfer, base_now + s);
+                }
+            });
+            let res =
+                server_api::upload_share(&share, &client_id, &name, kind, &owner, &files, sent)
+                    .await;
+            poll.abort();
+            res.map_err(err)?;
+            uploaded += 1;
             done += path_bytes[idx];
             state.xfer_update(xfer, done);
         }
