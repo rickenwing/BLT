@@ -96,6 +96,84 @@ pub fn verify_and_write(
     write_at(root, rel_path, offset, data)
 }
 
+/// Writes verified chunks through **pooled, kept-open file handles** instead of
+/// opening + closing the destination file for every chunk.
+///
+/// PERF-2: on Windows each `CloseHandle` of a growing multi-GB game file
+/// triggers a Defender scan of the whole file, so per-chunk open/close made disk
+/// writes take seconds and *grow* as the file filled — the download stalled
+/// (network idle between fetches) and decayed. macOS has no such scan, so it was
+/// Windows-only. Holding handles open scans once at final close instead.
+///
+/// Verify-before-write (HARD CONSTRAINT #1) is unchanged: a chunk is BLAKE3-
+/// checked before any byte is written, and a bad chunk touches nothing.
+pub struct PooledWriter {
+    root: PathBuf,
+    /// Open handles, least-recently-used first.
+    open: Vec<(String, fs::File)>,
+    max_open: usize,
+}
+
+impl PooledWriter {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            open: Vec::new(),
+            max_open: 8,
+        }
+    }
+
+    /// BLAKE3-verify `data`, then write it at `offset` into `rel_path` via a
+    /// kept-open handle. A bad chunk returns `HashMismatch` and writes nothing.
+    pub fn verify_and_write(
+        &mut self,
+        rel_path: &str,
+        offset: u64,
+        data: &[u8],
+        expected: &Hash,
+    ) -> Result<(), TransferError> {
+        if !verify(data, expected) {
+            return Err(TransferError::HashMismatch {
+                expected: *expected,
+            });
+        }
+        let f = self.handle(rel_path)?;
+        f.seek(SeekFrom::Start(offset))?;
+        f.write_all(data)?;
+        Ok(())
+    }
+
+    /// Fetch-or-open the handle for `rel_path`, promoting it to most-recently-used
+    /// and evicting (closing) the LRU handle past `max_open`.
+    fn handle(&mut self, rel_path: &str) -> Result<&mut fs::File, TransferError> {
+        if let Some(pos) = self.open.iter().position(|(p, _)| p == rel_path) {
+            let entry = self.open.remove(pos);
+            self.open.push(entry);
+        } else {
+            let path = safe_join(&self.root, rel_path)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let f = fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(&path)?;
+            if self.open.len() >= self.max_open {
+                self.open.remove(0); // drop = close the LRU handle
+            }
+            self.open.push((rel_path.to_string(), f));
+        }
+        Ok(&mut self.open.last_mut().expect("just inserted").1)
+    }
+
+    /// Close all open handles (flushing to the OS). Call before validating or
+    /// finalising so reads see complete files.
+    pub fn close_all(&mut self) {
+        self.open.clear();
+    }
+}
+
 /// Bring the on-disk tree in line with the manifest's **shape**: create
 /// zero-byte files (which have no chunks, hence no bitmap bits — the chunk
 /// loop never touches them) and truncate files that are **longer** than their
@@ -417,6 +495,43 @@ mod tests {
         write_at(dir.path(), "f.bin", 0, b"HELO").unwrap();
         let got = fs::read(dir.path().join("f.bin")).unwrap();
         assert_eq!(&got, b"HELOWORLD");
+    }
+
+    #[test]
+    fn pooled_writer_assembles_files_and_rejects_bad_chunks() {
+        let dir = tmp();
+        let mut w = PooledWriter::new(dir.path().to_path_buf());
+        // Interleave two files through one kept-open pool, out of offset order.
+        w.verify_and_write("a.bin", 4, b"WORLD", &hash_bytes(b"WORLD"))
+            .unwrap();
+        w.verify_and_write("b.bin", 0, b"ONE", &hash_bytes(b"ONE"))
+            .unwrap();
+        w.verify_and_write("a.bin", 0, b"HELO", &hash_bytes(b"HELO"))
+            .unwrap();
+        // A bad chunk is rejected and writes nothing (HARD CONSTRAINT #1).
+        let bad = w.verify_and_write("b.bin", 3, b"XXX", &hash_bytes(b"different"));
+        assert!(matches!(bad, Err(TransferError::HashMismatch { .. })));
+        w.close_all();
+        assert_eq!(fs::read(dir.path().join("a.bin")).unwrap(), b"HELOWORLD");
+        assert_eq!(fs::read(dir.path().join("b.bin")).unwrap(), b"ONE");
+    }
+
+    #[test]
+    fn pooled_writer_evicts_past_max_open() {
+        let dir = tmp();
+        let mut w = PooledWriter::new(dir.path().to_path_buf());
+        w.max_open = 2;
+        // Three files through a 2-handle pool → the first is evicted (closed) but
+        // reopening it for a later chunk still assembles correctly.
+        for (i, name) in ["x.bin", "y.bin", "z.bin"].iter().enumerate() {
+            let b = vec![b'a' + i as u8; 3];
+            w.verify_and_write(name, 0, &b, &hash_bytes(&b)).unwrap();
+        }
+        w.verify_and_write("x.bin", 3, b"END", &hash_bytes(b"END"))
+            .unwrap();
+        w.close_all();
+        assert_eq!(fs::read(dir.path().join("x.bin")).unwrap(), b"aaaEND");
+        assert_eq!(fs::read(dir.path().join("z.bin")).unwrap(), b"ccc");
     }
 
     // Build a one-file manifest from real bytes and write the file to disk.

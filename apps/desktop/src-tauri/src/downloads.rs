@@ -13,7 +13,7 @@ use crate::state::Shared;
 use blt_core::bitmap::Bitmap;
 use blt_core::manifest::{ChunkLocator, Manifest};
 use blt_core::p2p::{assign, PeerRate, PeerSource, SchedulerConfig, SERVER_SOURCE_ID};
-use blt_core::transfer::{finalize_layout, validate_quick, verify_and_write};
+use blt_core::transfer::{finalize_layout, validate_quick, PooledWriter};
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -397,6 +397,9 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     let mut validate_tries = 0u32;
     let mut failures: HashMap<String, u32> = HashMap::new();
     let mut backoff = Duration::from_millis(500);
+    // Chunks are written through kept-open handles (PERF-2): per-chunk open/close
+    // made Windows Defender re-scan the growing file and stalled the download.
+    let mut writer = PooledWriter::new(job.dest.clone());
 
     'outer: loop {
         if active.cancelled.load(Ordering::SeqCst) {
@@ -420,6 +423,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
             // files are missing/corrupt on disk (e.g. the folder was deleted),
             // clear those files' chunks and re-fetch them, rather than leaving a
             // full bitmap that re-fails validation forever (Resume self-heals).
+            writer.close_all(); // flush kept-open handles before reading them back
             finalize_layout(&manifest, &job.dest)?;
             let report = validate_quick(&manifest, &job.dest);
             if report.all_ok() {
@@ -512,7 +516,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
             for (gidx, source, res, elapsed) in results {
                 if apply_result(
                     state,
-                    job,
+                    &mut writer,
                     &locators,
                     &mut bitmap,
                     &active,
@@ -606,7 +610,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
 #[allow(clippy::too_many_arguments)]
 fn apply_result(
     state: &Shared,
-    job: &Job,
+    writer: &mut PooledWriter,
     locators: &[ChunkLocator],
     bitmap: &mut Bitmap,
     active: &Arc<Active>,
@@ -621,8 +625,9 @@ fn apply_result(
     match res {
         Ok(bytes) => {
             // HARD CONSTRAINT #1: BLAKE3-verify before write; a bad chunk is
-            // refetched elsewhere, never written.
-            match verify_and_write(&job.dest, &loc.rel_path, loc.offset, &bytes, &loc.hash) {
+            // refetched elsewhere, never written. Written through a kept-open
+            // pooled handle (PERF-2: avoids per-chunk open/close + Defender scan).
+            match writer.verify_and_write(&loc.rel_path, loc.offset, &bytes, &loc.hash) {
                 Ok(()) => {
                     bitmap.set(gidx);
                     active.have.fetch_add(1, Ordering::SeqCst);
