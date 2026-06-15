@@ -88,11 +88,15 @@ pub async fn check() -> anyhow::Result<UpdateInfo> {
 /// The minisign public key the server tarball is signed with — the SAME key the
 /// desktop updater uses (decoded from tauri.conf.json's `pubkey`). Embedded so an
 /// attacker who controls a GitHub release still can't forge a server update.
+// Used by the unix in-place install + the tests; on the Windows lib build the
+// install path bails before verifying, so silence the dead-code lint there.
+#[cfg_attr(not(unix), allow(dead_code))]
 const UPDATE_PUBKEY: &str = "RWQAsA8O2iwRGvUc3+8OPGksy2DYSjFXjlq+J4TLv9achhyvCkHLe/Mw";
 
 /// Verify `data` against a minisign signature file (SEC-1). Tauri writes the
 /// `.sig` as base64 of the minisign signature text; accept either form. Fails
 /// closed — any problem means the update is refused.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn verify_signature(data: &[u8], sig_file: &str) -> anyhow::Result<()> {
     use base64::Engine as _;
     use minisign_verify::{PublicKey, Signature};
