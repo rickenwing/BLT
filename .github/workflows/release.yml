@@ -94,8 +94,16 @@ jobs:
           cp -r admin-web/dist/* stage/admin-web/
           cp -r examples stage/examples
           cd stage && tar czf ../${{ matrix.artifact }}.tar.gz .
+      - name: Sign server tarball (SEC-1 — same minisign key as the desktop updater)
+        shell: bash
+        run: npx --yes @tauri-apps/cli@^2 signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "${{ matrix.artifact }}.tar.gz"
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: ${{ matrix.artifact }}.tar.gz
+          files: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sig
