@@ -162,18 +162,29 @@ declare global {
 function YouTubePlayer({ item }: { item: JukeboxItem }) {
   const holder = useRef<HTMLDivElement>(null);
   const vid = youtubeId(item.ref);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (!vid || !holder.current) return;
     let player: any;
     let cancelled = false;
 
+    // YT.Player REPLACES its target element with an <iframe>. Mount it on a
+    // throwaway child div — NOT the React-managed holder — so React re-renders
+    // (the playback view re-renders on every jukebox WS broadcast) don't fight
+    // YT over the same DOM node and blow the iframe away, which left the stage
+    // blank after Play.
+    const mount = document.createElement("div");
+    holder.current.innerHTML = "";
+    holder.current.appendChild(mount);
+
     function create() {
-      if (cancelled || !holder.current) return;
-      player = new window.YT.Player(holder.current, {
+      if (cancelled) return;
+      player = new window.YT.Player(mount, {
         videoId: vid,
         playerVars: { autoplay: 1, rel: 0 },
         events: {
+          onReady: () => setLoadError(false),
           onStateChange: (e: { data: number }) => {
             if (e.data === 0 /* ended */) {
               void api.jukeboxEnded();
@@ -192,6 +203,7 @@ function YouTubePlayer({ item }: { item: JukeboxItem }) {
     } else {
       const tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
+      tag.onerror = () => setLoadError(true);
       document.head.appendChild(tag);
       const prev = window.onYouTubeIframeAPIReady;
       window.onYouTubeIframeAPIReady = () => {
@@ -199,8 +211,16 @@ function YouTubePlayer({ item }: { item: JukeboxItem }) {
         create();
       };
     }
+    // No blank screens: if the IFrame API never initialises (no internet /
+    // blocked), surface it so the operator knows why instead of staring at a
+    // black stage.
+    const watchdog = window.setTimeout(() => {
+      if (!cancelled && !window.YT?.Player) setLoadError(true);
+    }, 12000);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(watchdog);
       try {
         player?.destroy();
       } catch {
@@ -217,7 +237,19 @@ function YouTubePlayer({ item }: { item: JukeboxItem }) {
       </div>
     );
   }
-  return <div ref={holder} />;
+  if (loadError) {
+    return (
+      <div className="external-card">
+        <div className="big">Couldn't load YouTube</div>
+        <p className="dim">
+          This machine needs internet to play YouTube. Check its connection,
+          then press Next.
+        </p>
+        <p className="dim">{item.ref}</p>
+      </div>
+    );
+  }
+  return <div ref={holder} style={{ width: "100%", height: "100%" }} />;
 }
 
 /** Direct URLs + shared-pool files stream straight into an HTML5 video
