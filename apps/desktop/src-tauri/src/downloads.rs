@@ -471,6 +471,13 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         // important because chunk_size is server-configurable, so accumulating
         // the batch could pin 64 × chunk_size in RAM.
         let mut any_ok = false;
+        // PERF-2 instrumentation: split each 64-chunk batch into time spent
+        // fetching (network + server) vs verifying+writing (disk), so a slow
+        // download's logs show exactly which stage decays.
+        let batch_started = Instant::now();
+        let bytes_before = active.bytes_done.load(Ordering::SeqCst);
+        let mut fetch_time = Duration::ZERO;
+        let mut write_time = Duration::ZERO;
         for group in assignments.chunks(FETCH_CONCURRENCY) {
             let futs = group.iter().map(|(gidx, source)| {
                 let loc = locators[*gidx as usize].clone();
@@ -493,12 +500,15 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
             // feel dead while fetches are in flight (a hung fetch otherwise blocks
             // up to the 30s per-chunk timeout). Interrupted → drop the in-flight
             // fetches (no partial writes) and let the top of the loop exit.
+            let fetch_at = Instant::now();
             let Some(results) =
                 until_interrupted(&active, futures_util::future::join_all(futs)).await
             else {
                 persist(state, job, &bitmap, "active", None)?;
                 continue 'outer;
             };
+            fetch_time += fetch_at.elapsed();
+            let write_at = Instant::now();
             for (gidx, source, res, elapsed) in results {
                 if apply_result(
                     state,
@@ -517,6 +527,23 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
                     since_persist += 1;
                 }
             }
+            write_time += write_at.elapsed();
+        }
+        let batch_bytes = active
+            .bytes_done
+            .load(Ordering::SeqCst)
+            .saturating_sub(bytes_before);
+        let batch_s = batch_started.elapsed().as_secs_f64();
+        if batch_bytes > 0 && batch_s > 0.0 {
+            info!(
+                have = active.have.load(Ordering::SeqCst),
+                total = total_chunks,
+                mb = batch_bytes / 1_048_576,
+                fetch_ms = fetch_time.as_millis() as u64,
+                write_ms = write_time.as_millis() as u64,
+                mb_s = format!("{:.1}", batch_bytes as f64 / 1_048_576.0 / batch_s),
+                "PERF-2 batch"
+            );
         }
 
         // Speed window + periodic persistence.
