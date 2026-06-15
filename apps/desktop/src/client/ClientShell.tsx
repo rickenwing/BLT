@@ -32,10 +32,23 @@ export default function ClientShell({ boot }: { boot: AppBootState }) {
   }, []);
 
   useEffect(() => {
-    const un = on("connection-changed", async () => {
-      setConn(await api.connectionState());
-    });
+    let alive = true;
+    const refresh = async () => {
+      const c = await api.connectionState();
+      if (alive) setConn(c);
+    };
+    const un = on("connection-changed", refresh);
+    // Reconcile right after subscribing: the WS often connects (and emits
+    // "connection-changed") during app boot, *before* this listener is
+    // registered — Tauri doesn't buffer events for late subscribers, and a
+    // stable connection never emits again. Without this the indicator sticks on
+    // "reconnecting…" forever despite being connected.
+    void refresh();
+    // Safety net so the status can never get wedged on a single missed event.
+    const t = setInterval(refresh, 4000);
     return () => {
+      alive = false;
+      clearInterval(t);
       void un.then((u) => u());
     };
   }, []);
