@@ -272,6 +272,23 @@ pub fn delete_download(
     Ok(())
 }
 
+/// Drop all resume state for a title (every manifest version).
+pub fn delete_downloads_for_title(conn: &Connection, title_id: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM download_state WHERE title_id=?1",
+        params![title_id as i64],
+    )?;
+    Ok(())
+}
+
+pub fn delete_title_location(conn: &Connection, title_id: u64) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM title_locations WHERE title_id=?1",
+        params![title_id as i64],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

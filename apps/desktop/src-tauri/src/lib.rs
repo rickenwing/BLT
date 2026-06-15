@@ -109,6 +109,7 @@ pub fn run() {
             commands::pause_download,
             commands::resume_download,
             commands::cancel_download,
+            commands::delete_game,
             commands::downloads_snapshot,
             commands::validate_title,
             commands::repair_title,

@@ -201,18 +201,24 @@ pub async fn fetch_titles(state: State<'_, Shared>) -> Cmd<Vec<TitleWithLocal>> 
                 .iter()
                 .filter(|r| r.status != "complete")
                 .max_by_key(|r| r.manifest_ver);
+            // A recorded download whose folder no longer exists on disk (the
+            // user deleted it, or the volume is gone) reads as not_downloaded,
+            // so the Library reflects reality without a manual validate.
+            let present = |d: &str| std::path::Path::new(d).exists();
             let (local_state, local_dest, local_ver) = match (complete, partial) {
-                (Some(c), _) if c.manifest_ver == t.manifest_ver => {
+                (Some(c), _) if c.manifest_ver == t.manifest_ver && present(&c.dest_path) => {
                     ("complete", Some(c.dest_path.clone()), Some(c.manifest_ver))
                 }
-                (Some(c), _) => (
+                (Some(c), _) if present(&c.dest_path) => (
                     // finished on an older version → flag update (F4.9)
                     "update_available",
                     Some(c.dest_path.clone()),
                     Some(c.manifest_ver),
                 ),
-                (None, Some(p)) => ("partial", Some(p.dest_path.clone()), Some(p.manifest_ver)),
-                (None, None) => ("not_downloaded", None, None),
+                (None, Some(p)) if present(&p.dest_path) => {
+                    ("partial", Some(p.dest_path.clone()), Some(p.manifest_ver))
+                }
+                _ => ("not_downloaded", None, None),
             };
             TitleWithLocal {
                 title: t,
@@ -334,6 +340,13 @@ pub fn begin_download(
     }
     {
         let conn = state.db.lock();
+        // If the destination folder is gone (deleted game, or a fresh download),
+        // drop any stale resume state so we don't treat a vanished game as
+        // already complete — otherwise it'd "finish" instantly then fail to
+        // validate.
+        if !PathBuf::from(&dest).exists() {
+            let _ = db::delete_downloads_for_title(&conn, title_id);
+        }
         db::set_title_location(&conn, title_id, &dest).map_err(err)?;
     }
     state.downloads.enqueue(
@@ -344,6 +357,38 @@ pub fn begin_download(
         title_name,
         PathBuf::from(dest),
     );
+    Ok(())
+}
+
+/// Delete a downloaded game: remove its files from disk and forget its local
+/// state. UI-confirmed (HARD CONSTRAINT #5). Refuses to remove the download root
+/// itself as a guard against a misconfigured destination.
+#[tauri::command]
+pub fn delete_game(state: State<'_, Shared>, app: tauri::AppHandle, title_id: u64) -> Cmd<()> {
+    state.downloads.cancel(title_id); // stop any in-flight download first
+    let dest = {
+        let conn = state.db.lock();
+        db::title_location(&conn, title_id).map_err(err)?
+    };
+    if let Some(dest) = dest {
+        let p = PathBuf::from(&dest);
+        if let Some(root) = state.settings.read().default_download_root.clone() {
+            if p.as_path() == std::path::Path::new(&root) {
+                return Err(
+                    "refusing to delete the download root — remove the game folder manually".into(),
+                );
+            }
+        }
+        if p.exists() {
+            std::fs::remove_dir_all(&p).map_err(err)?;
+        }
+    }
+    {
+        let conn = state.db.lock();
+        db::delete_downloads_for_title(&conn, title_id).map_err(err)?;
+        db::delete_title_location(&conn, title_id).map_err(err)?;
+    }
+    let _ = tauri::Emitter::emit(&app, "titles-changed", ());
     Ok(())
 }
 

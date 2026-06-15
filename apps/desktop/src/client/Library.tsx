@@ -274,6 +274,25 @@ function TitleDetail({
     }
   }
 
+  async function deleteGame() {
+    if (
+      !window.confirm(
+        `Delete "${title.label || title.name}" and remove its files from disk?\n\n` +
+          `${title.local_dest ?? ""}\n\nThis cannot be undone.`,
+      )
+    )
+      return;
+    setBusy("delete");
+    try {
+      await api.deleteGame(title.id);
+      onClose();
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const downloadable =
     title.local_state === "not_downloaded" || title.local_state === "update_available";
 
@@ -349,6 +368,11 @@ function TitleDetail({
                     </button>
                   )}
                 </>
+              )}
+              {title.local_state !== "not_downloaded" && (
+                <button className="danger" disabled={busy !== null} onClick={deleteGame}>
+                  🗑 Delete game
+                </button>
               )}
             </div>
 

@@ -222,6 +222,7 @@ export const api = {
   resumeDownload: (titleId: number, manifestVer: number, titleName: string) =>
     invoke<void>("resume_download", { titleId, manifestVer, titleName }),
   cancelDownload: (titleId: number) => invoke<void>("cancel_download", { titleId }),
+  deleteGame: (titleId: number) => invoke<void>("delete_game", { titleId }),
   downloadsSnapshot: () => invoke<QueueEntry[]>("downloads_snapshot"),
   activeTransfers: () => invoke<TransferRow[]>("active_transfers"),
   validateTitle: (titleId: number, deep: boolean) =>
