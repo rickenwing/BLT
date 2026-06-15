@@ -842,11 +842,7 @@ async fn jukebox_ws_add_vote_and_external_lane() {
 
     // The submitter auto-upvotes their own pick: the YouTube item already has
     // 1 vote and voted_by_me for player-1 (votes key on client_id, F8.4/#13).
-    let yt = snapshot
-        .up_next
-        .iter()
-        .find(|i| i.id == yt_id)
-        .expect("yt");
+    let yt = snapshot.up_next.iter().find(|i| i.id == yt_id).expect("yt");
     assert_eq!(yt.votes, 1);
     assert!(yt.voted_by_me);
 
