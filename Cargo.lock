@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "blt"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "blt-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "hex",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "blt-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -490,12 +490,14 @@ dependencies = [
  "blt-core",
  "bytes",
  "flate2",
+ "fs4",
  "futures",
  "futures-util",
  "hex",
  "if-addrs",
  "local-ip-address",
  "mdns-sd",
+ "minisign-verify",
  "notify",
  "parking_lot",
  "rand 0.8.6",

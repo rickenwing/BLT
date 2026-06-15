@@ -44,9 +44,18 @@ pub fn router(state: SharedState) -> Router {
 /// LAN; equivalent in strength to the login endpoint itself.
 async fn verify_admin(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> ApiResult<StatusCode> {
     use argon2::{PasswordHash, PasswordVerifier};
+    // This password oracle lives on the no-auth game listener; throttle it the
+    // same as /api/login so it can't be brute-forced (SEC-2).
+    let ip = addr.ip();
+    if state.login_locked(ip) {
+        return Err(ApiError::TooManyRequests(
+            "too many failed attempts; wait a minute".into(),
+        ));
+    }
     let password = body
         .get("password")
         .and_then(|v| v.as_str())
@@ -63,8 +72,10 @@ async fn verify_admin(
         .verify_password(password.as_bytes(), &parsed)
         .is_err()
     {
+        state.login_fail(ip);
         return Err(ApiError::Unauthorized);
     }
+    state.login_ok(ip);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -455,6 +466,10 @@ fn handle_client_msg(
                 }
             };
             let display_name = if name.is_empty() { cid.clone() } else { name };
+            if !crate::jukebox::Jukebox::ref_acceptable(item_type, &reference) {
+                warn!(ty = ?item_type, "rejected non-http(s) jukebox ref");
+                return;
+            }
             let res = {
                 let conn = state.db.lock();
                 let jb = state.jukebox.lock();
@@ -532,12 +547,14 @@ fn send_jukebox_to(
 /// A peer announcing `0.0.0.0:port` (or an empty host) gets its observed remote
 /// IP substituted so other clients receive a reachable address.
 fn normalize_endpoint(announced: &str, remote: SocketAddr) -> String {
-    match announced.rsplit_once(':') {
-        Some((host, port)) if host.is_empty() || host == "0.0.0.0" => {
-            format!("{}:{port}", remote.ip())
-        }
-        _ => announced.to_string(),
-    }
+    // Always use the observed remote IP; only the announced PORT is trusted, so
+    // a client can't advertise an arbitrary host (SEC-8). A missing/invalid port
+    // (e.g. one with an embedded path) falls back to the connection's port.
+    let port: u16 = announced
+        .rsplit_once(':')
+        .and_then(|(_, p)| p.trim().parse().ok())
+        .unwrap_or_else(|| remote.port());
+    format!("{}:{port}", remote.ip())
 }
 
 #[cfg(test)]
@@ -565,6 +582,15 @@ mod tests {
             "192.168.1.42:9000"
         );
         assert_eq!(normalize_endpoint(":9000", remote), "192.168.1.42:9000");
-        assert_eq!(normalize_endpoint("10.0.0.5:9000", remote), "10.0.0.5:9000");
+        // Announced host is ignored — always the observed remote IP (SEC-8).
+        assert_eq!(
+            normalize_endpoint("10.0.0.5:9000", remote),
+            "192.168.1.42:9000"
+        );
+        // Embedded path / bad port → falls back to the connection's port.
+        assert_eq!(
+            normalize_endpoint("evil:80/x", remote),
+            "192.168.1.42:55555"
+        );
     }
 }

@@ -14,8 +14,8 @@ use argon2::password_hash::{
     rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
 };
 use argon2::Argon2;
-use axum::extract::{Path as AxPath, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::extract::{ConnectInfo, Path as AxPath, Query, State};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -24,9 +24,11 @@ use blt_core::jukebox::OrderMode;
 use blt_core::protocol::ItemType;
 use serde::Deserialize;
 use serde_json::json;
+use std::net::SocketAddr;
 use tracing::{info, warn};
 
 const COOKIE_NAME: &str = "blt_admin";
+const MIN_PASSWORD_LEN: usize = 8;
 
 /// Build the admin router: `/api/*` + the SPA static mount.
 pub fn router(state: SharedState) -> Router {
@@ -102,13 +104,42 @@ async fn require_auth(
     req: axum::extract::Request,
     next: Next,
 ) -> Response {
+    // CSRF defence-in-depth (SEC-4): for state-changing methods, reject when an
+    // Origin/Referer is present and its host doesn't match our Host. This
+    // survives future edits that might weaken the SameSite=Strict cookie or add
+    // CORS. Same-origin requests (the SPA) send a matching Origin or none.
+    let m = req.method();
+    let safe_method = *m == Method::GET || *m == Method::HEAD || *m == Method::OPTIONS;
+    if !safe_method && !same_origin(&headers) {
+        return ApiError::Forbidden("cross-origin request rejected".into()).into_response();
+    }
     let ok = cookie_token(&headers)
-        .map(|t| state.admin_sessions.lock().contains(&t))
+        .map(|t| state.session_valid(&t))
         .unwrap_or(false);
     if !ok {
         return ApiError::Unauthorized.into_response();
     }
     next.run(req).await
+}
+
+/// True if there is no cross-origin signal, or the Origin/Referer host matches
+/// the request's Host (SEC-4).
+fn same_origin(headers: &HeaderMap) -> bool {
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
+    let claimed = headers
+        .get(header::ORIGIN)
+        .or_else(|| headers.get(header::REFERER))
+        .and_then(|v| v.to_str().ok());
+    match (host, claimed) {
+        // No Origin/Referer → not a browser cross-site form/XHR; allow.
+        (_, None) => true,
+        (Some(host), Some(claimed)) => claimed
+            .split("://")
+            .nth(1)
+            .map(|rest| rest.split('/').next().unwrap_or("") == host)
+            .unwrap_or(false),
+        _ => false,
+    }
 }
 
 #[derive(Deserialize)]
@@ -121,15 +152,13 @@ async fn setup(
     State(state): State<SharedState>,
     Json(body): Json<PasswordBody>,
 ) -> ApiResult<Response> {
-    if body.password.len() < 4 {
-        return Err(ApiError::BadRequest("password too short".into()));
+    if body.password.len() < MIN_PASSWORD_LEN {
+        return Err(ApiError::BadRequest(format!(
+            "password must be at least {MIN_PASSWORD_LEN} characters"
+        )));
     }
-    {
-        let cfg = state.config.read();
-        if cfg.admin_password_hash.is_some() {
-            return Err(ApiError::Conflict("password already set".into()));
-        }
-    }
+    // Hash before taking the lock (argon2 is slow); keep the check-then-write
+    // under a single write lock so concurrent first-run setups can't race (SEC-9).
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
         .hash_password(body.password.as_bytes(), &salt)
@@ -137,6 +166,9 @@ async fn setup(
         .to_string();
     {
         let mut cfg = state.config.write();
+        if cfg.admin_password_hash.is_some() {
+            return Err(ApiError::Conflict("password already set".into()));
+        }
         cfg.admin_password_hash = Some(hash);
         cfg.save(&state.config_path)
             .map_err(|e| ApiError::Internal(format!("save config: {e}")))?;
@@ -147,8 +179,15 @@ async fn setup(
 
 async fn login(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<PasswordBody>,
 ) -> ApiResult<Response> {
+    let ip = addr.ip();
+    if state.login_locked(ip) {
+        return Err(ApiError::TooManyRequests(
+            "too many failed attempts; wait a minute".into(),
+        ));
+    }
     let stored = {
         let cfg = state.config.read();
         cfg.admin_password_hash.clone()
@@ -164,16 +203,17 @@ async fn login(
         .verify_password(body.password.as_bytes(), &parsed)
         .is_err()
     {
-        warn!("admin login failed");
+        state.login_fail(ip);
+        warn!(%ip, "admin login failed");
         return Err(ApiError::Unauthorized);
     }
+    state.login_ok(ip);
     info!("admin logged in");
     issue_session(&state)
 }
 
 fn issue_session(state: &SharedState) -> ApiResult<Response> {
-    let token = uuid::Uuid::new_v4().to_string();
-    state.admin_sessions.lock().insert(token.clone());
+    let token = state.session_new();
     Ok((
         [(
             header::SET_COOKIE,
@@ -191,14 +231,14 @@ async fn auth_state(
 ) -> Json<serde_json::Value> {
     let needs_setup = state.config.read().admin_password_hash.is_none();
     let authed = cookie_token(&headers)
-        .map(|t| state.admin_sessions.lock().contains(&t))
+        .map(|t| state.session_valid(&t))
         .unwrap_or(false);
     Json(json!({"needs_setup": needs_setup, "authed": authed}))
 }
 
 async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> Json<serde_json::Value> {
     if let Some(t) = cookie_token(&headers) {
-        state.admin_sessions.lock().remove(&t);
+        state.session_remove(&t);
     }
     Json(json!({"ok": true}))
 }
@@ -212,7 +252,7 @@ struct ChangePassword {
 async fn change_password(
     State(state): State<SharedState>,
     Json(body): Json<ChangePassword>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Response> {
     let stored = state
         .config
         .read()
@@ -227,20 +267,26 @@ async fn change_password(
     {
         return Err(ApiError::Unauthorized);
     }
-    if body.new.len() < 4 {
-        return Err(ApiError::BadRequest("password too short".into()));
+    if body.new.len() < MIN_PASSWORD_LEN {
+        return Err(ApiError::BadRequest(format!(
+            "password must be at least {MIN_PASSWORD_LEN} characters"
+        )));
     }
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
         .hash_password(body.new.as_bytes(), &salt)
         .map_err(|e| ApiError::Internal(format!("hash: {e}")))?
         .to_string();
-    let mut cfg = state.config.write();
-    cfg.admin_password_hash = Some(hash);
-    cfg.save(&state.config_path)
-        .map_err(|e| ApiError::Internal(format!("save config: {e}")))?;
-    info!("admin password changed");
-    Ok(Json(json!({"ok": true})))
+    {
+        let mut cfg = state.config.write();
+        cfg.admin_password_hash = Some(hash);
+        cfg.save(&state.config_path)
+            .map_err(|e| ApiError::Internal(format!("save config: {e}")))?;
+    }
+    // Revoke every existing session, then hand the caller a fresh one (SEC-5).
+    state.session_clear();
+    info!("admin password changed; all sessions revoked");
+    issue_session(&state)
 }
 
 // ─────────────────────────── status/config ─────────────────────────
@@ -491,19 +537,28 @@ async fn fs_browse(Query(q): Query<FsQuery>) -> ApiResult<Json<serde_json::Value
     } else {
         q.path.clone()
     };
+    // Resolve symlinks/.. up front; refuse if it doesn't resolve (SEC-6 — no
+    // silent fall-through to an unresolved path).
     let canon = std::path::Path::new(&start)
         .canonicalize()
-        .unwrap_or_else(|_| std::path::PathBuf::from(&start));
+        .map_err(|e| ApiError::BadRequest(format!("cannot resolve {start:?}: {e}")))?;
     if !canon.is_dir() {
         return Err(ApiError::BadRequest(format!(
             "not a directory: {}",
             canon.display()
         )));
     }
+    // Cap entries so a huge directory can't spike memory/CPU (SEC-6).
+    const MAX_ENTRIES: usize = 2000;
     let mut dirs: Vec<serde_json::Value> = Vec::new();
+    let mut truncated = false;
     let rd = std::fs::read_dir(&canon)
         .map_err(|e| ApiError::BadRequest(format!("cannot read {}: {e}", canon.display())))?;
     for entry in rd.flatten() {
+        if dirs.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
         let p = entry.path();
         if !p.is_dir() {
             continue;
@@ -526,6 +581,7 @@ async fn fs_browse(Query(q): Query<FsQuery>) -> ApiResult<Json<serde_json::Value
         "path": canon.to_string_lossy(),
         "parent": canon.parent().map(|p| p.to_string_lossy().to_string()),
         "dirs": dirs,
+        "truncated": truncated,
     })))
 }
 
@@ -664,6 +720,11 @@ async fn jukebox_add(
 ) -> ApiResult<Json<serde_json::Value>> {
     let ty = ItemType::from_str_opt(&body.item_type)
         .ok_or_else(|| ApiError::BadRequest(format!("unknown item type {:?}", body.item_type)))?;
+    if !crate::jukebox::Jukebox::ref_acceptable(ty, &body.reference) {
+        return Err(ApiError::BadRequest(
+            "only http(s) URLs are allowed for this item type".into(),
+        ));
+    }
     let id = {
         let conn = state.db.lock();
         let jb = state.jukebox.lock();

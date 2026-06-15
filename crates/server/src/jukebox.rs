@@ -53,6 +53,20 @@ impl Jukebox {
         Ok(conn.last_insert_rowid() as u64)
     }
 
+    /// Reject URL-bearing item refs that aren't http(s) (SEC-7): `direct_url`
+    /// becomes a `<video src>` and `external` opens a browser on the playback
+    /// machine — a client must not be able to point either at `file://` or an
+    /// internal address.
+    pub fn ref_acceptable(item_type: ItemType, reference: &str) -> bool {
+        match item_type {
+            ItemType::DirectUrl | ItemType::External => {
+                let r = reference.trim();
+                r.starts_with("http://") || r.starts_with("https://")
+            }
+            _ => true,
+        }
+    }
+
     /// Toggle a vote (F8.4); votes key on `client_id` so renaming can't
     /// double-vote. Returns the new voted state for this client; voting on a
     /// non-existent item is a no-op returning `false`. Real DB errors

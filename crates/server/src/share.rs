@@ -76,6 +76,20 @@ async fn upload_share(
         .ok_or_else(|| ApiError::BadRequest("share path not configured".into()))?;
     tokio::fs::create_dir_all(&share_root).await?;
 
+    // Upload bounds (SEC-3): keep a malicious/runaway client from filling the
+    // share volume or creating unbounded files.
+    const MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024 * 1024; // 256 GiB per upload
+    const MAX_PARTS: usize = 50_000;
+    const MIN_FREE_HEADROOM: u64 = 1024 * 1024 * 1024; // refuse if <1 GiB free
+    if let Ok(free) = fs4::available_space(&share_root) {
+        if free < MIN_FREE_HEADROOM {
+            return Err(ApiError::BadRequest(format!(
+                "share volume nearly full ({} MiB free)",
+                free / (1024 * 1024)
+            )));
+        }
+    }
+
     let owner_client = headers
         .get(CLIENT_ID_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -119,6 +133,11 @@ async fn upload_share(
                     .map_err(|e| ApiError::BadRequest(format!("meta json: {e}")))?;
             }
             Some("file") => {
+                if files.len() >= MAX_PARTS {
+                    return Err(ApiError::BadRequest(format!(
+                        "too many files in one upload (max {MAX_PARTS})"
+                    )));
+                }
                 let raw_rel = field
                     .file_name()
                     .ok_or_else(|| ApiError::BadRequest("file part without filename".into()))?
@@ -169,8 +188,16 @@ async fn upload_share(
                 loop {
                     match field.chunk().await {
                         Ok(Some(bytes)) => {
-                            f.write_all(&bytes).await?;
                             written += bytes.len() as u64;
+                            if total + written > MAX_UPLOAD_BYTES {
+                                drop(f);
+                                let _ = tokio::fs::remove_file(&dest).await;
+                                return Err(ApiError::BadRequest(format!(
+                                    "upload exceeds the {} GiB limit",
+                                    MAX_UPLOAD_BYTES / (1024 * 1024 * 1024)
+                                )));
+                            }
+                            f.write_all(&bytes).await?;
                         }
                         Ok(None) => break,
                         Err(e) => {

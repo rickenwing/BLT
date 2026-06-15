@@ -85,6 +85,33 @@ pub async fn check() -> anyhow::Result<UpdateInfo> {
     })
 }
 
+/// The minisign public key the server tarball is signed with — the SAME key the
+/// desktop updater uses (decoded from tauri.conf.json's `pubkey`). Embedded so an
+/// attacker who controls a GitHub release still can't forge a server update.
+const UPDATE_PUBKEY: &str = "RWQAsA8O2iwRGvUc3+8OPGksy2DYSjFXjlq+J4TLv9achhyvCkHLe/Mw";
+
+/// Verify `data` against a minisign signature file (SEC-1). Tauri writes the
+/// `.sig` as base64 of the minisign signature text; accept either form. Fails
+/// closed — any problem means the update is refused.
+fn verify_signature(data: &[u8], sig_file: &str) -> anyhow::Result<()> {
+    use base64::Engine as _;
+    use minisign_verify::{PublicKey, Signature};
+    let trimmed = sig_file.trim();
+    let sig_text = match base64::engine::general_purpose::STANDARD.decode(trimmed) {
+        Ok(raw) => String::from_utf8(raw).unwrap_or_else(|_| trimmed.to_string()),
+        Err(_) => trimmed.to_string(),
+    };
+    let pk = PublicKey::from_base64(UPDATE_PUBKEY)
+        .map_err(|e| anyhow::anyhow!("bad embedded pubkey: {e}"))?;
+    let sig =
+        Signature::decode(&sig_text).map_err(|e| anyhow::anyhow!("bad update signature: {e}"))?;
+    // Accept both prehashed and legacy minisign signatures.
+    pk.verify(data, &sig, false)
+        .or_else(|_| pk.verify(data, &sig, true))
+        .map_err(|e| anyhow::anyhow!("update signature verification failed: {e}"))?;
+    Ok(())
+}
+
 /// The server tarball asset name for the current OS (matches `release.yml`).
 fn asset_name() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -115,12 +142,17 @@ pub async fn install() -> anyhow::Result<()> {
             anyhow::bail!("already on the latest version ({})", current_version());
         }
         let want = asset_name();
-        let url = rel["assets"]
-            .as_array()
-            .and_then(|a| a.iter().find(|x| x["name"].as_str() == Some(want)))
-            .and_then(|x| x["browser_download_url"].as_str())
-            .ok_or_else(|| anyhow::anyhow!("release {tag} has no asset {want}"))?
-            .to_string();
+        let find = |name: &str| {
+            rel["assets"]
+                .as_array()
+                .and_then(|a| a.iter().find(|x| x["name"].as_str() == Some(name)))
+                .and_then(|x| x["browser_download_url"].as_str())
+                .map(|s| s.to_string())
+        };
+        let url = find(want).ok_or_else(|| anyhow::anyhow!("release {tag} has no asset {want}"))?;
+        let sig_name = format!("{want}.sig");
+        let sig_url = find(&sig_name)
+            .ok_or_else(|| anyhow::anyhow!("release {tag} is unsigned (no {sig_name})"))?;
 
         let bytes = http()
             .get(&url)
@@ -129,6 +161,15 @@ pub async fn install() -> anyhow::Result<()> {
             .error_for_status()?
             .bytes()
             .await?;
+        let sig_file = http()
+            .get(&sig_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        // SEC-1: verify the signature BEFORE extracting or executing anything.
+        verify_signature(&bytes, &sig_file)?;
 
         let exe = std::env::current_exe()?;
         let dir = exe
@@ -195,5 +236,15 @@ mod tests {
         assert!(!is_newer("garbage", "0.1.1"));
         // pre-release suffix on patch is tolerated
         assert!(is_newer("v0.1.2-rc1", "0.1.1"));
+    }
+
+    #[test]
+    fn embedded_pubkey_parses_and_bad_sig_is_rejected() {
+        use minisign_verify::PublicKey;
+        // The embedded key must be a valid minisign public key.
+        assert!(PublicKey::from_base64(UPDATE_PUBKEY).is_ok());
+        // Fail-closed: a garbage signature must not verify.
+        assert!(verify_signature(b"payload", "not a signature").is_err());
+        assert!(verify_signature(b"payload", "").is_err());
     }
 }

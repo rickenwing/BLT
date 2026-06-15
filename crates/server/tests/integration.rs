@@ -632,7 +632,7 @@ async fn admin_auth_setup_login_gate() {
     // First-run setup issues a session cookie (F1.6).
     let r = http
         .post(format!("{base}/api/setup"))
-        .json(&serde_json::json!({"password": "hunter2"}))
+        .json(&serde_json::json!({"password": "hunter2-pass"}))
         .send()
         .await
         .expect("setup");
@@ -641,7 +641,7 @@ async fn admin_auth_setup_login_gate() {
     // Setup can't run twice.
     let r = http
         .post(format!("{base}/api/setup"))
-        .json(&serde_json::json!({"password": "again"}))
+        .json(&serde_json::json!({"password": "again-too-long"}))
         .send()
         .await
         .expect("setup2");
@@ -669,7 +669,7 @@ async fn admin_auth_setup_login_gate() {
     assert_eq!(r.status().as_u16(), 401);
     let r = http2
         .post(format!("{base}/api/login"))
-        .json(&serde_json::json!({"password": "hunter2"}))
+        .json(&serde_json::json!({"password": "hunter2-pass"}))
         .send()
         .await
         .expect("login");
@@ -688,7 +688,7 @@ async fn config_get_put_roundtrip_succeeds() {
         .expect("client");
     let base = format!("http://{}", srv.admin);
     http.post(format!("{base}/api/setup"))
-        .json(&serde_json::json!({"password": "hunter2"}))
+        .json(&serde_json::json!({"password": "hunter2-pass"}))
         .send()
         .await
         .expect("setup");
