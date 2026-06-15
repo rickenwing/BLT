@@ -106,7 +106,7 @@ export default function Downloads() {
                         {q.status}
                       </span>
                     </td>
-                    <td>
+                    <td className="row">
                       {(q.status === "paused" || q.status === "error") && (
                         <button
                           onClick={() =>
@@ -118,6 +118,22 @@ export default function Downloads() {
                           ▶ Resume
                         </button>
                       )}
+                      <button
+                        className="danger"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Remove "${q.name || `Title #${q.title_id}`}" and delete its files from disk?`,
+                            )
+                          )
+                            api
+                              .deleteGame(q.title_id)
+                              .then(load)
+                              .catch((e) => alert(String(e)));
+                        }}
+                      >
+                        🗑 Remove
+                      </button>
                     </td>
                   </tr>
                 ))}

@@ -327,11 +327,14 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     let locators: Vec<ChunkLocator> = manifest.chunk_locators();
     let total_chunks = manifest.chunk_count();
 
-    // Resume bitmap (the heart of resume — TDD §4.2).
+    // Resume bitmap (the heart of resume — TDD §4.2). If the destination folder
+    // is gone (deleted between sessions), the persisted bitmap is stale — start
+    // fresh so every chunk is re-fetched instead of "completing" against deleted
+    // files and failing validation with no way to recover.
     let mut bitmap = {
         let conn = state.db.lock();
         match db::load_bitmap(&conn, job.title_id, job.manifest_ver)? {
-            Some((bm, _, _)) if bm.len() == total_chunks => bm,
+            Some((bm, _, _)) if bm.len() == total_chunks && job.dest.exists() => bm,
             _ => Bitmap::new(total_chunks),
         }
     };
@@ -368,6 +371,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     let mut since_persist = 0u64;
     let mut window_start = Instant::now();
     let mut window_bytes = 0u64;
+    let mut validate_tries = 0u32;
     let mut failures: HashMap<String, u32> = HashMap::new();
     let mut backoff = Duration::from_millis(500);
 
@@ -389,7 +393,43 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
 
         let missing: Vec<u64> = bitmap.missing().collect();
         if missing.is_empty() {
-            break 'outer;
+            // Everything present per the bitmap → finalize + quick-validate. If
+            // files are missing/corrupt on disk (e.g. the folder was deleted),
+            // clear those files' chunks and re-fetch them, rather than leaving a
+            // full bitmap that re-fails validation forever (Resume self-heals).
+            finalize_layout(&manifest, &job.dest)?;
+            let report = validate_quick(&manifest, &job.dest);
+            if report.all_ok() {
+                break 'outer;
+            }
+            let failed: HashSet<String> = report.failures().map(|f| f.rel_path.clone()).collect();
+            for loc in &locators {
+                if failed.contains(&loc.rel_path) {
+                    bitmap.clear(loc.global_idx);
+                }
+            }
+            active.have.store(bitmap.count_set(), Ordering::SeqCst);
+            validate_tries += 1;
+            if validate_tries >= 3 {
+                let names: Vec<&String> = failed.iter().take(5).collect();
+                persist(
+                    state,
+                    job,
+                    &bitmap,
+                    "error",
+                    Some(&format!(
+                        "validation still failing after re-fetch: {names:?}"
+                    )),
+                )?;
+                anyhow::bail!("quick validation failed after re-fetch: {names:?}");
+            }
+            warn!(
+                title = job.title_id,
+                files = failed.len(),
+                "validation failed — re-fetching"
+            );
+            persist(state, job, &bitmap, "active", None)?;
+            continue 'outer;
         }
 
         // Throughput-weighted source assignment (F13.7). Peers that have
@@ -483,25 +523,7 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         }
     }
 
-    // Completion: materialise empty files / truncate over-long, then quick
-    // validation (F5.1).
-    finalize_layout(&manifest, &job.dest)?;
-    let report = validate_quick(&manifest, &job.dest);
-    if !report.all_ok() {
-        let missing: Vec<String> = report
-            .failures()
-            .map(|f| f.rel_path.clone())
-            .take(5)
-            .collect();
-        persist(
-            state,
-            job,
-            &bitmap,
-            "error",
-            Some(&format!("quick validation failed: {missing:?}")),
-        )?;
-        anyhow::bail!("quick validation failed after download: {missing:?}");
-    }
+    // The loop only breaks once finalize + quick-validation passed (F5.1).
     persist(state, job, &bitmap, "complete", None)?;
     info!(title = job.title_id, "download complete + validated");
     report_activity(state, "idle");
