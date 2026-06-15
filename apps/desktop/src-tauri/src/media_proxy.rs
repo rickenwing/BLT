@@ -77,13 +77,23 @@ const EMBED_PAGE: &str = r#"<!doctype html>
 <script>
 var vid = "__VID__";
 function send(m){ try { parent.postMessage({ blt: m }, "*"); } catch (e) {} }
+// Best-effort: nudge YouTube toward the highest available quality. YouTube
+// deprecated forced quality (~2019) and now picks adaptively from bandwidth +
+// player size, so this only biases the initial pick — it can't guarantee 1080p.
+function maxQuality(p){
+  try {
+    var levels = p.getAvailableQualityLevels && p.getAvailableQualityLevels();
+    p.setPlaybackQuality(levels && levels.length ? levels[0] : "highres");
+  } catch (e) {}
+}
 window.onYouTubeIframeAPIReady = function () {
   new YT.Player("p", {
     videoId: vid,
-    playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1 },
+    playerVars: { autoplay: 1, rel: 0, playsinline: 1, modestbranding: 1, vq: "hd1080" },
     events: {
+      onReady: function (e) { maxQuality(e.target); },
       onError: function () { send("error"); },
-      onStateChange: function (e) { if (e.data === 0) send("ended"); }
+      onStateChange: function (e) { if (e.data === 1) maxQuality(e.target); if (e.data === 0) send("ended"); }
     }
   });
 };
