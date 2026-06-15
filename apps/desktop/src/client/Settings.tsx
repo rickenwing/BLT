@@ -157,18 +157,34 @@ export default function Settings({
     }
   }
 
+  // The row matching the server we're actually connected to (by game endpoint).
+  const connectedHere = (s: ServerRow) =>
+    conn.ws_connected && !!conn.game_endpoint && s.game_endpoint === conn.game_endpoint;
+
   return (
     <>
       <h1>Settings</h1>
 
       <h2>Connection</h2>
       <div className="panel">
-        <div className="dim" style={{ marginBottom: 10 }}>
-          {conn.ws_connected
-            ? `Connected to ${conn.server_label ?? conn.game_endpoint}`
-            : conn.game_endpoint
-              ? `Reconnecting to ${conn.game_endpoint}…`
-              : "Not connected."}
+        <div style={{ marginBottom: 4 }}>
+          <span className={`conn-dot ${conn.ws_connected ? "on" : "off"}`} />
+          {conn.ws_connected ? (
+            <>
+              Connected to{" "}
+              <strong>{conn.server_label ?? conn.game_endpoint}</strong>
+              {conn.game_endpoint ? ` (${conn.game_endpoint})` : ""}
+            </>
+          ) : conn.game_endpoint ? (
+            `Reconnecting to ${conn.game_endpoint}…`
+          ) : (
+            "Not connected."
+          )}
+        </div>
+        <div className="dim" style={{ marginBottom: 10, fontSize: 12 }}>
+          Reconnects to your last server on launch and discovers others on the
+          LAN automatically — no need to connect manually unless you switch
+          servers.
         </div>
         {servers.length > 0 && (
           <table style={{ marginBottom: 12 }}>
@@ -182,7 +198,14 @@ export default function Settings({
             </thead>
             <tbody>
               {servers.map((s) => (
-                <tr key={s.id}>
+                <tr
+                  key={s.id}
+                  style={
+                    connectedHere(s)
+                      ? { background: "rgba(52, 211, 153, 0.08)" }
+                      : undefined
+                  }
+                >
                   <td>
                     <strong>{s.label ?? "(unnamed)"}</strong>
                     {s.uuid ? (
@@ -198,12 +221,18 @@ export default function Settings({
                   <td className="dim">{s.game_endpoint}</td>
                   <td className="dim">{s.share_endpoint || "—"}</td>
                   <td>
-                    {s.game_endpoint && (
-                      <button
-                        onClick={() => connect(s.game_endpoint!, s.share_endpoint, s.label)}
-                      >
-                        Connect
-                      </button>
+                    {connectedHere(s) ? (
+                      <span className="badge ok">✓ Connected</span>
+                    ) : (
+                      s.game_endpoint && (
+                        <button
+                          onClick={() =>
+                            connect(s.game_endpoint!, s.share_endpoint, s.label)
+                          }
+                        >
+                          Connect
+                        </button>
+                      )
                     )}
                   </td>
                 </tr>
