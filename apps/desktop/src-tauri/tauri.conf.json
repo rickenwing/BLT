@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; media-src 'self' blob: http: https:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss:"
+      "csp": null
     }
   },
   "bundle": {
