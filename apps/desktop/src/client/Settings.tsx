@@ -112,6 +112,17 @@ export default function Settings({
     };
   }, [loadServers]);
 
+  // Re-seed from the live settings on mount: `boot` is a launch-time snapshot,
+  // so a value changed earlier this session would otherwise revert here.
+  useEffect(() => {
+    void api.getAppState().then((b) => {
+      setName(b.settings.display_name);
+      setRoot(b.settings.default_download_root ?? "");
+      setCap(Math.round(b.settings.upload_cap_bytes_per_sec / 1024));
+      setShareBack(b.settings.share_back);
+    });
+  }, []);
+
   async function save(e: FormEvent) {
     e.preventDefault();
     setMsg(null);
