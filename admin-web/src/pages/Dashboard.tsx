@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, formatUptime, Status } from "../api";
 
 interface UpdateInfo {
@@ -14,16 +14,24 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkErr, setCheckErr] = useState<string | null>(null);
+
+  const checkUpdate = useCallback(async () => {
+    setChecking(true);
+    setCheckErr(null);
+    try {
+      setUpdate(await api.get<UpdateInfo>("/api/update/check"));
+    } catch (e) {
+      setCheckErr(e instanceof Error ? e.message : "check failed");
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        setUpdate(await api.get<UpdateInfo>("/api/update/check"));
-      } catch {
-        /* offline / rate-limited — leave the banner hidden */
-      }
-    })();
-  }, []);
+    void checkUpdate();
+  }, [checkUpdate]);
 
   async function installUpdate() {
     if (
@@ -107,29 +115,6 @@ export default function Dashboard() {
     <>
       <h1>{status.label}</h1>
 
-      {update?.update_available && (
-        <div className="update-banner">
-          <strong>Server update available: {update.latest}</strong>{" "}
-          <span className="dim">(you're on {update.current})</span>
-          {update.notes && <pre>{update.notes}</pre>}
-          <div style={{ marginTop: 10 }}>
-            <button className="primary" onClick={installUpdate}>
-              ↻ Download &amp; restart
-            </button>
-            {update.url && (
-              <a
-                href={update.url}
-                target="_blank"
-                rel="noreferrer"
-                style={{ marginLeft: 12 }}
-              >
-                Release notes ↗
-              </a>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="cards">
         <div className="card">
           <div className="label">Version</div>
@@ -146,6 +131,54 @@ export default function Dashboard() {
       </div>
 
       {actionMsg && <div className="dim">{actionMsg}</div>}
+
+      <h2>Software update</h2>
+      <div className={`panel${update?.update_available ? " update-banner" : ""}`}>
+        <div className="row" style={{ alignItems: "center", gap: 12 }}>
+          <div className="grow">
+            {checking ? (
+              <span className="dim">Checking GitHub for a newer release…</span>
+            ) : update?.update_available ? (
+              <>
+                <strong>Update available: {update.latest}</strong>{" "}
+                <span className="dim">(you're on {update.current})</span>
+              </>
+            ) : checkErr ? (
+              <span className="dim">
+                Couldn't check for updates: {checkErr}
+              </span>
+            ) : update ? (
+              <>
+                You're on the latest version (
+                <strong>{update.current}</strong>).
+              </>
+            ) : (
+              <span className="dim">
+                Current version: <strong>{status.version}</strong>
+              </span>
+            )}
+          </div>
+          <button onClick={checkUpdate} disabled={checking}>
+            ↻ Check for updates
+          </button>
+          {update?.update_available && (
+            <button className="primary" onClick={installUpdate}>
+              ↓ Download &amp; restart
+            </button>
+          )}
+        </div>
+        {update?.update_available && update.notes && <pre>{update.notes}</pre>}
+        {update?.update_available && update.url && (
+          <a href={update.url} target="_blank" rel="noreferrer">
+            Release notes ↗
+          </a>
+        )}
+        <p className="dim" style={{ marginBottom: 0, marginTop: 10 }}>
+          Installing verifies the release signature, swaps the binary, and
+          auto-restarts the server (clients reconnect; downloads resume). macOS
+          server only — a Windows-hosted server must be swapped manually.
+        </p>
+      </div>
 
       <h2>Service bindings</h2>
       <div className="panel">
