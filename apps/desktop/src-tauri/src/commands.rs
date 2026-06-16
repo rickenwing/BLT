@@ -453,6 +453,21 @@ pub fn active_transfers(state: State<'_, Shared>) -> Vec<crate::state::TransferR
     out
 }
 
+/// Cancel an in-flight transfer by its sidebar row id (`share-<id>` for a
+/// shared-pool upload/download, `game-<title_id>` for a game download).
+#[tauri::command]
+pub fn cancel_transfer(state: State<'_, Shared>, id: String) {
+    if let Some(rest) = id.strip_prefix("share-") {
+        if let Ok(n) = rest.parse::<u64>() {
+            state.xfer_cancel(n);
+        }
+    } else if let Some(rest) = id.strip_prefix("game-") {
+        if let Ok(n) = rest.parse::<u64>() {
+            state.downloads.cancel(n);
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ValidationOut {
     pub all_ok: bool,
@@ -709,11 +724,15 @@ pub async fn share_upload(state: State<'_, Shared>, paths: Vec<String>) -> Cmd<u
         format!("{} items", paths.len())
     };
     let xfer = state.xfer_begin("share-upload", &label, total);
+    let cancel = state.xfer_cancel_flag(xfer).unwrap_or_default();
 
     let mut uploaded = 0usize;
     let mut done = 0u64;
     let up: Result<(), String> = async {
         for (idx, p) in paths.iter().enumerate() {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break; // cancelled between files
+            }
             let path = PathBuf::from(p);
             let (name, kind, files): (String, &str, Vec<(PathBuf, String)>) = if path.is_dir() {
                 let name = path
@@ -748,10 +767,21 @@ pub async fn share_upload(state: State<'_, Shared>, paths: Vec<String>) -> Cmd<u
                     st.xfer_update(xfer, base_now + s);
                 }
             });
-            let res =
-                server_api::upload_share(&share, &client_id, &name, kind, &owner, &files, sent)
-                    .await;
+            let res = server_api::upload_share(
+                &share,
+                &client_id,
+                &name,
+                kind,
+                &owner,
+                &files,
+                sent,
+                cancel.clone(),
+            )
+            .await;
             poll.abort();
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break; // cancelled mid-file → res is the aborted-stream error; ignore
+            }
             res.map_err(err)?;
             uploaded += 1;
             done += path_bytes[idx];
@@ -838,9 +868,13 @@ pub async fn share_download(
     // Progress indicator (sidebar + title bar): total bytes across the plan.
     let total: u64 = plan.iter().map(|(_, _, s)| *s).sum();
     let xfer = state.xfer_begin("share-download", &listing.share.name, total);
+    let cancel = state.xfer_cancel_flag(xfer).unwrap_or_default();
     let mut base = 0u64;
     let dl: Result<(), String> = async {
         for (remote_rel, safe_rel, size) in &plan {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break; // cancelled (between files)
+            }
             let dest = blt_core::transfer::safe_join(&root, safe_rel).map_err(err)?;
             if only_missing {
                 if let Ok(meta) = std::fs::metadata(&dest) {

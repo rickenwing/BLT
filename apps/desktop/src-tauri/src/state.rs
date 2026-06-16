@@ -7,7 +7,7 @@ use blt_core::runtime::ComponentDirs;
 use parking_lot::{Mutex, RwLock};
 use rusqlite::Connection;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -165,6 +165,8 @@ pub struct ShareXfer {
     pub speed_bps: u64,
     last_t: Instant,
     last_bytes: u64,
+    /// Set by a cancel request; the streaming upload/download checks it and aborts.
+    cancel: Arc<AtomicBool>,
 }
 
 /// Uniform transfer row for the sidebar/title-bar indicator (games + shares).
@@ -204,10 +206,24 @@ impl ClientState {
                 speed_bps: 0,
                 last_t: Instant::now(),
                 last_bytes: 0,
+                cancel: Arc::new(AtomicBool::new(false)),
             },
         );
         self.emit_transfers();
         id
+    }
+
+    /// Clone an in-flight transfer's cancel flag so the streaming upload/download
+    /// can poll it and abort mid-file.
+    pub fn xfer_cancel_flag(&self, id: u64) -> Option<Arc<AtomicBool>> {
+        self.xfers.lock().get(&id).map(|x| x.cancel.clone())
+    }
+
+    /// Request cancellation of an in-flight share transfer.
+    pub fn xfer_cancel(&self, id: u64) {
+        if let Some(x) = self.xfers.lock().get(&id) {
+            x.cancel.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Update bytes done; recomputes a smoothed speed at most twice a second.

@@ -225,6 +225,7 @@ export const api = {
   deleteGame: (titleId: number) => invoke<void>("delete_game", { titleId }),
   downloadsSnapshot: () => invoke<QueueEntry[]>("downloads_snapshot"),
   activeTransfers: () => invoke<TransferRow[]>("active_transfers"),
+  cancelTransfer: (id: string) => invoke<void>("cancel_transfer", { id }),
   validateTitle: (titleId: number, deep: boolean) =>
     invoke<ValidationOut>("validate_title", { titleId, deep }),
   repairTitle: (titleId: number, titleName: string) =>

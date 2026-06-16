@@ -60,6 +60,13 @@ export default function Transfers() {
                 {arrow(t.kind)} {t.label}
               </span>
               <span className="xfer-pct">{pct}%</span>
+              <button
+                className="xfer-cancel"
+                title="Cancel"
+                onClick={() => void api.cancelTransfer(t.id)}
+              >
+                ✕
+              </button>
             </div>
             <div className="progress sm">
               <div style={{ width: `${pct}%` }} />

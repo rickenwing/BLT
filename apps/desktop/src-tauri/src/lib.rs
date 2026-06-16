@@ -138,6 +138,7 @@ pub fn run() {
             commands::update_check,
             commands::update_install,
             commands::active_transfers,
+            commands::cancel_transfer,
             commands::media_proxy_port,
         ])
         .setup(move |app| {

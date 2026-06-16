@@ -186,6 +186,7 @@ pub async fn download_share_file(
 /// folder shares carry their tree in the relative paths. Each file is streamed
 /// from disk (not buffered whole) and bumps `sent` as bytes go out, so the
 /// caller can show live upload progress + speed.
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_share(
     share: &str,
     client_id: &str,
@@ -194,6 +195,7 @@ pub async fn upload_share(
     owner_name: &str,
     files: &[(std::path::PathBuf, String)],
     sent: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<ShareSummary, ApiError> {
     use futures_util::StreamExt;
     use std::sync::atomic::Ordering;
@@ -213,7 +215,13 @@ pub async fn upload_share(
             .map_err(|e| ApiError::Network(format!("stat {}: {e}", abs.display())))?
             .len();
         let counter = sent.clone();
+        let cancel_c = cancel.clone();
         let stream = tokio_util::io::ReaderStream::new(file).map(move |res| {
+            // A cancel aborts the body stream → reqwest fails the request; the
+            // caller checks the flag and treats that as a cancel, not an error.
+            if cancel_c.load(Ordering::SeqCst) {
+                return Err(std::io::Error::other("upload cancelled"));
+            }
             if let Ok(ref b) = res {
                 counter.fetch_add(b.len() as u64, Ordering::SeqCst);
             }
