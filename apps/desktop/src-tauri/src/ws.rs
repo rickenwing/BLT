@@ -81,16 +81,34 @@ async fn run_once(state: &Shared, app: &tauri::AppHandle, game: &str) -> anyhow:
     announce_seeds(state, &tx);
 
     let writer = async {
-        while let Some(msg) = rx.recv().await {
-            let text = serde_json::to_string(&msg)?;
-            sink.send(Message::Text(text)).await?;
+        // Heartbeat: ping every 20s. A dead link surfaces as a failed send (→
+        // reconnect), and keeps the server's read-timeout from dropping us.
+        let mut ping = tokio::time::interval(Duration::from_secs(20));
+        ping.tick().await; // skip the immediate first tick
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    let Some(msg) = msg else { break };
+                    sink.send(Message::Text(serde_json::to_string(&msg)?)).await?;
+                }
+                _ = ping.tick() => {
+                    sink.send(Message::Text(serde_json::to_string(&ClientMsg::Ping)?)).await?;
+                }
+            }
         }
         anyhow::Ok(())
     };
 
     let reader = async {
-        while let Some(msg) = stream.next().await {
-            let msg = msg?;
+        loop {
+            // Bail if the server goes silent (a half-open drop sends no FIN, so
+            // `next()` would otherwise block forever and wedge "connected" with no
+            // reconnect — HARD CONSTRAINT #12). Pongs keep a healthy link alive.
+            let msg = match tokio::time::timeout(Duration::from_secs(60), stream.next()).await {
+                Err(_) => anyhow::bail!("no server activity for 60s"),
+                Ok(None) => break,
+                Ok(Some(m)) => m?,
+            };
             let Message::Text(text) = msg else { continue };
             let Ok(parsed) = serde_json::from_str::<ServerMsg>(&text) else {
                 continue;

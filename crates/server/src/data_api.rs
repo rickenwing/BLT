@@ -324,7 +324,16 @@ async fn ws_session(state: SharedState, socket: WebSocket, remote: SocketAddr) {
     });
 
     let mut client_id = String::new();
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        // Drop the session if the client goes silent (an abrupt drop / sleep sends
+        // no Close frame). A healthy client pings every 20s, so 90s only trips on a
+        // genuinely dead peer — frees the fd and removes it from the roster instead
+        // of leaking a zombie session.
+        let msg =
+            match tokio::time::timeout(std::time::Duration::from_secs(90), stream.next()).await {
+                Ok(Some(Ok(m))) => m,
+                _ => break, // timeout, stream end, or ws error
+            };
         let text = match msg {
             Message::Text(t) => t,
             Message::Close(_) => break,
