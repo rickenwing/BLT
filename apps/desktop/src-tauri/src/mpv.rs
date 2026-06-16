@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tauri::{Emitter, Manager, WebviewWindow};
+use tracing::{info, warn};
 
 /// One-player state: just the current generation. The child is owned by its
 /// watcher thread, which polls this to know when it has been superseded.
@@ -58,6 +59,20 @@ pub fn load(state: &Shared, window: &WebviewWindow, url: &str) -> Result<(), Str
     let bin = mpv_path().ok_or("mpv not found — install it (e.g. `brew install mpv`)")?;
     let app = window.app_handle().clone();
 
+    // Route the stream through our loopback proxy so mpv talks to 127.0.0.1
+    // (exempt from macOS Local Network privacy) instead of the LAN directly — a
+    // spawned helper like mpv is otherwise blocked from the LAN under a GUI
+    // launch, even though the app itself has access. Fall back to direct if the
+    // proxy isn't up.
+    let play_url = match *state.media_port.read() {
+        Some(port) => format!(
+            "http://127.0.0.1:{port}/stream?u={}",
+            crate::server_api::urlencode(url)
+        ),
+        None => url.to_string(),
+    };
+    info!(%play_url, "mpv play");
+
     let generation = {
         let mut p = state.mpv.lock();
         p.generation += 1;
@@ -75,8 +90,9 @@ pub fn load(state: &Shared, window: &WebviewWindow, url: &str) -> Result<(), Str
             // own OSC + keybindings (e.g. `q` to skip, space to pause) for now.
             "--fullscreen=yes".into(),
             "--ontop=yes".into(),
-            url.to_string(),
+            play_url,
         ])
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("could not launch mpv ({e}) — is it installed?"))?;
 
@@ -89,9 +105,22 @@ pub fn load(state: &Shared, window: &WebviewWindow, url: &str) -> Result<(), Str
             return;
         }
         match child.try_wait() {
-            // Natural exit (EOF, or the user closed the mpv view) → advance.
-            Ok(Some(_)) => {
-                let _ = app.emit("mpv-ended", ());
+            Ok(Some(status)) => {
+                if status.success() {
+                    // Natural end-of-file (or `q`) → advance the jukebox.
+                    let _ = app.emit("mpv-ended", ());
+                } else {
+                    // mpv couldn't play it — surface the error instead of silently
+                    // skipping, and log its stderr so failures are diagnosable.
+                    let mut err = String::new();
+                    if let Some(mut e) = child.stderr.take() {
+                        use std::io::Read;
+                        let _ = e.read_to_string(&mut err);
+                    }
+                    let err = err.trim().to_string();
+                    warn!(code = status.code(), stderr = %err, "mpv exited with error");
+                    let _ = app.emit("mpv-failed", err);
+                }
                 return;
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(250)),

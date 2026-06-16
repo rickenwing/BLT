@@ -253,7 +253,7 @@ pub async fn delete_share(share: &str, client_id: &str, id: u64) -> Result<(), A
     Ok(())
 }
 
-fn urlencode(s: &str) -> String {
+pub fn urlencode(s: &str) -> String {
     // Minimal percent-encoding for path segments.
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {

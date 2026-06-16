@@ -268,7 +268,10 @@ export const api = {
 };
 
 /** Subscribe to a backend event; returns the unlisten promise. */
-export function on(event: string, handler: () => void): Promise<UnlistenFn> {
+export function on(
+  event: string,
+  handler: (e: { payload: unknown }) => void,
+): Promise<UnlistenFn> {
   return listen(event, handler);
 }
 

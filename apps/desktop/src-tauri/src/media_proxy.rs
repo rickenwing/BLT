@@ -13,8 +13,10 @@
 //! page parameterised by a sanitised video id; no filesystem or app access.
 
 use crate::state::Shared;
+use axum::body::Body;
 use axum::extract::Query;
-use axum::response::Html;
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
@@ -25,12 +27,19 @@ struct YtQuery {
     v: String,
 }
 
+#[derive(Deserialize)]
+struct StreamQuery {
+    /// The (percent-encoded) upstream LAN URL to proxy.
+    u: String,
+}
+
 /// Start the loopback embed server on an ephemeral port; records it in
 /// `ClientState.media_port`. Harmless if it can't bind (YouTube just won't play).
 pub async fn start(state: Shared) -> Option<u16> {
     let router = Router::new()
         .route("/ping", get(|| async { "blt" }))
-        .route("/yt", get(yt_embed));
+        .route("/yt", get(yt_embed))
+        .route("/stream", get(stream_proxy));
 
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
         Ok(l) => l,
@@ -59,6 +68,40 @@ async fn yt_embed(Query(q): Query<YtQuery>) -> Html<String> {
             .take(16)
             .collect();
     Html(EMBED_PAGE.replace("__VID__", &vid))
+}
+
+/// Range-passthrough proxy: mpv connects here on loopback and we fetch the
+/// upstream LAN URL on its behalf. macOS Local Network privacy blocks a spawned
+/// helper (mpv) from the LAN under a GUI launch, but loopback is exempt and the
+/// app itself has LAN access — so this is what lets mpv play shared files.
+async fn stream_proxy(headers: HeaderMap, Query(q): Query<StreamQuery>) -> Response {
+    let target = q.u;
+    if !(target.starts_with("http://") || target.starts_with("https://")) {
+        return (StatusCode::BAD_REQUEST, "only http(s) targets").into_response();
+    }
+    let mut req = crate::server_api::http().get(&target);
+    // Forward the byte range so mpv can seek; the upstream supports Range.
+    if let Some(r) = headers.get(header::RANGE) {
+        req = req.header(header::RANGE, r);
+    }
+    let upstream = match req.send().await {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::BAD_GATEWAY, format!("upstream: {e}")).into_response(),
+    };
+    let mut builder = Response::builder().status(upstream.status());
+    for h in [
+        header::CONTENT_TYPE,
+        header::CONTENT_LENGTH,
+        header::CONTENT_RANGE,
+        header::ACCEPT_RANGES,
+    ] {
+        if let Some(v) = upstream.headers().get(&h) {
+            builder = builder.header(h, v);
+        }
+    }
+    builder
+        .body(Body::from_stream(upstream.bytes_stream()))
+        .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "body").into_response())
 }
 
 /// The embed page. `__VID__` is replaced with the sanitised video id. Autoplays,

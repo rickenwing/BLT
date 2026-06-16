@@ -265,11 +265,21 @@ function StreamPlayer({ item }: { item: JukeboxItem }) {
     return () => void api.mpvStop();
   }, [src, useMpv]);
 
-  // mpv exiting at end-of-file advances the jukebox (F9.3).
+  // mpv exiting at end-of-file advances the jukebox (F9.3); a failure surfaces
+  // an error (with mpv's message) instead of silently skipping.
   useEffect(() => {
     if (useMpv !== true) return;
-    const un = on("mpv-ended", () => void api.jukeboxEnded());
-    return () => void un.then((u) => u());
+    const subs = [
+      on("mpv-ended", () => void api.jukeboxEnded()),
+      on("mpv-failed", (e) =>
+        setErr(
+          typeof e.payload === "string" && e.payload
+            ? `mpv: ${e.payload}`
+            : "mpv playback failed",
+        ),
+      ),
+    ];
+    return () => subs.forEach((s) => void s.then((u) => u()));
   }, [useMpv]);
 
   if (err) {
