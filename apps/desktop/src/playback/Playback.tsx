@@ -12,6 +12,19 @@ function youtubeId(url: string): string | null {
   return m ? m[1] : null;
 }
 
+/** A short, readable label for a jukebox item: its title, else a friendly form
+ *  of the ref (YouTube id, or the host of a URL) instead of a giant raw URL. */
+function prettyRef(title: string | null | undefined, ref: string): string {
+  if (title) return title;
+  const yt = youtubeId(ref);
+  if (yt) return `YouTube · ${yt}`;
+  try {
+    return new URL(ref).hostname.replace(/^www\./, "");
+  } catch {
+    return ref;
+  }
+}
+
 export default function Playback({ boot }: { boot: AppBootState }) {
   const [state, setState] = useState<JukeboxState | null>(null);
   const [unlockPw, setUnlockPw] = useState("");
@@ -96,18 +109,18 @@ export default function Playback({ boot }: { boot: AppBootState }) {
       <div className="bar">
         <div className="grow">
           {np ? (
-            <>
-              <strong>{np.title || np.ref}</strong>{" "}
+            <div className="np-line">
+              <strong>{prettyRef(np.title, np.ref)}</strong>{" "}
               <span className="dim">added by {np.added_by}</span>
-            </>
+            </div>
           ) : (
             <span className="dim">Nothing playing</span>
           )}
           {state && state.up_next.length > 0 && (
             <div className="upnext-strip">
               {state.up_next.slice(0, 6).map((i) => (
-                <span className="card" key={i.id}>
-                  ▲{i.votes} {i.title || i.ref}
+                <span className="card" key={i.id} title={i.title || i.ref}>
+                  ▲{i.votes} {prettyRef(i.title, i.ref)}
                 </span>
               ))}
             </div>

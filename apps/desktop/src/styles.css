@@ -113,10 +113,15 @@ td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border
 .playback .stage { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
 .playback .stage iframe, .playback .stage video { width: 100%; height: 100%; border: 0; position: absolute; inset: 0; }
 .playback .bar { display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--bg-panel); border-top: 1px solid var(--border); }
+/* Let the grow column shrink so a long URL ellipsizes instead of forcing the
+   whole bar wider than the window (and lets the strip's own scroll engage). */
+.playback .bar > .grow { min-width: 0; }
+.playback .bar > button { flex: none; }
+.np-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .playback .external-card { text-align: center; padding: 40px; }
 .playback .external-card .big { font-size: 26px; margin-bottom: 14px; }
 .upnext-strip { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0; }
-.upnext-strip .card { background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; white-space: nowrap; font-size: 12px; }
+.upnext-strip .card { flex: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; white-space: nowrap; font-size: 12px; }
 
 /* first run */
 .firstrun { min-height: 100vh; display: flex; align-items: center; justify-content: center; gap: 22px; }
