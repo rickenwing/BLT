@@ -238,6 +238,8 @@ function YouTubePlayer({ item }: { item: JukeboxItem }) {
 function StreamPlayer({ item }: { item: JukeboxItem }) {
   const [src, setSrc] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // null = still deciding; true = embed mpv; false = fall back to HTML5 <video>.
+  const [useMpv, setUseMpv] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (item.type === "direct_url") {
@@ -250,16 +252,42 @@ function StreamPlayer({ item }: { item: JukeboxItem }) {
     }
   }, [item]);
 
+  // Prefer mpv for arbitrary media (HEVC/MKV/FLAC the webview can't decode);
+  // fall back to the HTML5 player when mpv isn't installed.
+  useEffect(() => {
+    void api.mpvAvailable().then(setUseMpv);
+  }, []);
+
+  // Drive the embedded mpv player: load on src, stop on unmount/skip.
+  useEffect(() => {
+    if (!src || useMpv !== true) return;
+    api.mpvLoad(src).catch((e) => setErr(String(e)));
+    return () => void api.mpvStop();
+  }, [src, useMpv]);
+
+  // mpv exiting at end-of-file advances the jukebox (F9.3).
+  useEffect(() => {
+    if (useMpv !== true) return;
+    const un = on("mpv-ended", () => void api.jukeboxEnded());
+    return () => void un.then((u) => u());
+  }, [useMpv]);
+
   if (err) {
     return (
       <div className="external-card">
-        <div className="big">Can't stream this share</div>
+        <div className="big">Can't play this item</div>
         <p className="dim">{err}</p>
         <button onClick={() => api.jukeboxEnded()}>Skip</button>
       </div>
     );
   }
-  if (!src) return <div className="external-card dim">Resolving stream…</div>;
+  if (!src || useMpv === null) {
+    return <div className="external-card dim">Resolving stream…</div>;
+  }
+  if (useMpv) {
+    // mpv renders embedded into the window; this is the backdrop while it loads.
+    return <div className="external-card dim">▶ Playing via mpv…</div>;
+  }
   return (
     <video
       src={src}

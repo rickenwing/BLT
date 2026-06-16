@@ -7,6 +7,7 @@ pub mod discovery;
 pub mod downloads;
 pub mod freespace;
 pub mod media_proxy;
+pub mod mpv;
 pub mod scripts;
 pub mod server_api;
 pub mod state;
@@ -70,6 +71,7 @@ pub fn run() {
         app: std::sync::OnceLock::new(),
         xfers: parking_lot::Mutex::new(std::collections::HashMap::new()),
         xfer_seq: std::sync::atomic::AtomicU64::new(1),
+        mpv: parking_lot::Mutex::new(mpv::MpvPlayer::default()),
     });
 
     // Reconnect to the last server automatically (F3.4).
@@ -140,6 +142,9 @@ pub fn run() {
             commands::active_transfers,
             commands::cancel_transfer,
             commands::media_proxy_port,
+            commands::mpv_available,
+            commands::mpv_load,
+            commands::mpv_stop,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

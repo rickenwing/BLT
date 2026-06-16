@@ -152,6 +152,8 @@ pub struct ClientState {
     /// Active shared-pool transfers (uploads + downloads), keyed by id.
     pub xfers: Mutex<HashMap<u64, ShareXfer>>,
     pub xfer_seq: AtomicU64,
+    /// Embedded mpv player state (jukebox local/LAN media playback).
+    pub mpv: Mutex<crate::mpv::MpvPlayer>,
 }
 
 pub type Shared = Arc<ClientState>;

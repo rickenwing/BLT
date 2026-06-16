@@ -253,6 +253,9 @@ export const api = {
   jukeboxNext: () => invoke<void>("jukebox_next"),
   jukeboxEnded: () => invoke<void>("jukebox_ended"),
   mediaProxyPort: () => invoke<number | null>("media_proxy_port"),
+  mpvAvailable: () => invoke<boolean>("mpv_available"),
+  mpvLoad: (url: string) => invoke<void>("mpv_load", { url }),
+  mpvStop: () => invoke<void>("mpv_stop"),
   roster: () => invoke<RosterEntry[]>("roster"),
   resolveShareStream: (shareId: number) => invoke<string>("resolve_share_stream", { shareId }),
 

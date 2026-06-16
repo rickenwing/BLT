@@ -428,6 +428,26 @@ pub fn media_proxy_port(state: State<'_, Shared>) -> Option<u16> {
     *state.media_port.read()
 }
 
+/// Is a usable system mpv available? The playback UI uses mpv for local/LAN
+/// media (codecs the webview can't decode) and falls back to HTML5 video if not.
+#[tauri::command]
+pub fn mpv_available() -> bool {
+    crate::mpv::available()
+}
+
+/// Play `url` in mpv embedded in the playback window (jukebox media). Supersedes
+/// any current mpv player.
+#[tauri::command]
+pub fn mpv_load(window: tauri::WebviewWindow, state: State<'_, Shared>, url: String) -> Cmd<()> {
+    crate::mpv::load(state.inner(), &window, &url)
+}
+
+/// Stop the embedded mpv player without advancing the jukebox.
+#[tauri::command]
+pub fn mpv_stop(state: State<'_, Shared>) {
+    crate::mpv::stop(state.inner());
+}
+
 /// Unified active-transfer list for the sidebar + title-bar indicator: in-flight
 /// game downloads plus shared-pool uploads/downloads, in one uniform shape.
 #[tauri::command]
