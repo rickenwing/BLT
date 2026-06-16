@@ -271,25 +271,23 @@ async fn serve_share_file(
     AxPath((id, rel)): AxPath<(u64, String)>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
-    let stored = {
-        let conn = state.db.lock();
-        db::share_stored_path(&conn, id)?
-    };
+    // One lock for both lookups on the same `shares` row (streaming hot path).
     // Delete race (F15.4): a vanished share yields a clear 410, not a hang/corrupt.
-    let Some((stored_path, _owner)) = stored else {
-        return Ok((
-            StatusCode::GONE,
-            Json(serde_json::json!({"error": "share was deleted"})),
-        )
-            .into_response());
+    let (stored_path, kind_is_file) = {
+        let conn = state.db.lock();
+        let Some((stored_path, _owner)) = db::share_stored_path(&conn, id)? else {
+            return Ok((
+                StatusCode::GONE,
+                Json(serde_json::json!({"error": "share was deleted"})),
+            )
+                .into_response());
+        };
+        let kind_is_file = db::get_share(&conn, id)?
+            .map(|s| s.kind == ShareKind::File)
+            .unwrap_or(false);
+        (stored_path, kind_is_file)
     };
     let base = PathBuf::from(&stored_path);
-    let kind_is_file = {
-        let conn = state.db.lock();
-        db::get_share(&conn, id)?
-            .map(|s| s.kind == ShareKind::File)
-            .unwrap_or(false)
-    };
     let path = if kind_is_file {
         base.clone()
     } else {

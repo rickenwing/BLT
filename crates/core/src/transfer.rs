@@ -301,6 +301,9 @@ pub fn validate_deep(manifest: &Manifest, root: &Path) -> ValidationReport {
 pub fn repair_plan(manifest: &Manifest, root: &Path) -> Vec<u64> {
     let mut bad = Vec::new();
     let mut global = 0u64;
+    // One reusable read buffer sized to the manifest's chunk size, rather than a
+    // fresh multi-MiB Vec per chunk across thousands of chunks.
+    let mut buf = vec![0u8; manifest.chunk_size.max(1) as usize];
     for f in &manifest.files {
         let path = match safe_join(root, &f.rel_path) {
             Ok(p) => p,
@@ -316,9 +319,13 @@ pub fn repair_plan(manifest: &Manifest, root: &Path) -> Vec<u64> {
         for c in &f.chunks {
             let mut ok = false;
             if let Some(fh) = file.as_mut() {
-                let mut buf = vec![0u8; c.size as usize];
-                if fh.seek(SeekFrom::Start(c.offset)).is_ok() && fh.read_exact(&mut buf).is_ok() {
-                    ok = verify(&buf, &c.hash);
+                let n = c.size as usize;
+                if n > buf.len() {
+                    buf.resize(n, 0);
+                }
+                let slice = &mut buf[..n];
+                if fh.seek(SeekFrom::Start(c.offset)).is_ok() && fh.read_exact(slice).is_ok() {
+                    ok = verify(slice, &c.hash);
                 }
             }
             if !ok {

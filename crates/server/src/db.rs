@@ -265,23 +265,41 @@ pub fn replace_manifest(
     use std::collections::HashSet;
     let tx = conn.transaction()?;
 
-    // Existing files by rel_path → id, to preserve ids.
-    let mut existing: HashMap<String, i64> = HashMap::new();
+    // Existing files by rel_path → (id, size, mtime, hash), to preserve ids and
+    // skip rewriting files unchanged since the last scan.
+    let mut existing: HashMap<String, (i64, u64, i64, Vec<u8>)> = HashMap::new();
     {
-        let mut stmt = tx.prepare("SELECT id, rel_path FROM files WHERE title_id=?1")?;
+        let mut stmt =
+            tx.prepare("SELECT id, rel_path, size, mtime, hash FROM files WHERE title_id=?1")?;
         let rows = stmt.query_map(params![title_id as i64], |r| {
-            Ok((r.get::<_, String>(1)?, r.get::<_, i64>(0)?))
+            Ok((
+                r.get::<_, String>(1)?,
+                (
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(2)? as u64,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, Vec<u8>>(4)?,
+                ),
+            ))
         })?;
         for row in rows {
-            let (rel, id) = row?;
-            existing.insert(rel, id);
+            let (rel, meta) = row?;
+            existing.insert(rel, meta);
         }
     }
 
     let mut seen: HashSet<String> = HashSet::new();
     for f in files {
         seen.insert(f.rel_path.clone());
-        let file_id = if let Some(&id) = existing.get(&f.rel_path) {
+        let file_id = if let Some((id, size, mtime, hash)) = existing.get(&f.rel_path) {
+            let (id, size, mtime) = (*id, *size, *mtime);
+            // Unchanged (same size, mtime, content hash) → leave its row and chunks
+            // as-is instead of UPDATE + DELETE + re-INSERT, which is the bulk of a
+            // re-scan's write traffic for an unchanged title.
+            if size == f.size && mtime == f.mtime && hash.as_slice() == f.hash.as_bytes().as_slice()
+            {
+                continue;
+            }
             tx.execute(
                 "UPDATE files SET size=?2, mtime=?3, hash=?4 WHERE id=?1",
                 params![id, f.size as i64, f.mtime, f.hash.as_bytes().as_slice()],
@@ -315,7 +333,7 @@ pub fn replace_manifest(
         }
     }
     // Remove files no longer present (chunks cascade).
-    for (rel, id) in &existing {
+    for (rel, (id, _, _, _)) in &existing {
         if !seen.contains(rel) {
             tx.execute("DELETE FROM files WHERE id=?1", params![id])?;
         }
@@ -406,10 +424,12 @@ pub fn load_manifest(conn: &Connection, title_id: u64) -> rusqlite::Result<Optio
         })
     }
 
+    // Prepare the chunk query once and rebind per file, rather than recompiling
+    // it for every file in the title.
+    let mut cstmt =
+        conn.prepare("SELECT idx,offset,size,hash FROM chunks WHERE file_id=?1 ORDER BY idx")?;
     let mut files = Vec::with_capacity(file_rows.len());
     for (fid, rel_path, size, mtime, fhash) in file_rows {
-        let mut cstmt =
-            conn.prepare("SELECT idx,offset,size,hash FROM chunks WHERE file_id=?1 ORDER BY idx")?;
         let chunks = cstmt
             .query_map(params![fid as i64], |r| {
                 let h: Vec<u8> = r.get("hash")?;

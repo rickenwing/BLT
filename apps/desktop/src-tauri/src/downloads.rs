@@ -419,8 +419,11 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
             return Ok(());
         }
 
-        let missing: Vec<u64> = bitmap.missing().collect();
-        if missing.is_empty() {
+        // Only materialise the next batch of up-to-64 missing chunks, not the
+        // whole (potentially huge) missing set — assignment needs only this batch,
+        // and the full set scales with game size (128k chunks at the 500 GB target).
+        let batch: Vec<u64> = bitmap.missing().take(64).collect();
+        if batch.is_empty() {
             // Everything present per the bitmap → finalize + quick-validate. If
             // files are missing/corrupt on disk (e.g. the folder was deleted),
             // clear those files' chunks and re-fetch them, rather than leaving a
@@ -467,10 +470,10 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
         // failed too often this job are dropped (F15.3).
         let mut sources = build_sources(state, job.title_id, job.manifest_ver);
         sources.retain(|s| failures.get(&s.id).copied().unwrap_or(0) < SOURCE_FAILURE_LIMIT);
+        let have: HashSet<u64> = batch.iter().copied().collect();
         for s in &mut sources {
-            s.have = missing.iter().copied().collect();
+            s.have = have.clone();
         }
-        let batch: Vec<u64> = missing.iter().copied().take(64).collect();
         let assignments = assign(&batch, &sources, &SchedulerConfig::default());
 
         // Fetch then write, group by group, but PIPELINED: one group's write runs
