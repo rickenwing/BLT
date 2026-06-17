@@ -1,8 +1,8 @@
 //! Server error type that converts into HTTP responses.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde_json::json;
 
 /// A handler error that renders as a JSON `{ "error": "..." }` body.

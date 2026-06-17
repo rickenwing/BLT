@@ -12,7 +12,7 @@
 //!   and a repair plan of mismatched chunks.
 //! - [`completeness_check`] — the shared-pool "X of N files" check (F6.8).
 
-use crate::hashing::{verify, Hash, StreamHasher};
+use crate::hashing::{Hash, StreamHasher, verify};
 use crate::manifest::Manifest;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -391,9 +391,9 @@ pub fn completeness_check(entries: &[(String, u64)], root: &Path) -> Completenes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chunking::{plan_chunks, DEFAULT_CHUNK_SIZE};
+    use crate::chunking::{DEFAULT_CHUNK_SIZE, plan_chunks};
     use crate::hashing::hash_bytes;
-    use crate::manifest::{build_file_entry, Manifest};
+    use crate::manifest::{Manifest, build_file_entry};
 
     fn tmp() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()

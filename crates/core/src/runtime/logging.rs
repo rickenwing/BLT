@@ -8,7 +8,7 @@
 use std::path::Path;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Initialise logging for a component. Returns a [`WorkerGuard`] that **must be
 /// kept alive** for the lifetime of the process (dropping it flushes + stops the

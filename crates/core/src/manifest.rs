@@ -11,7 +11,7 @@
 //! is keyed by `(title_id, manifest_ver)` and always completes against the
 //! version it started on (F4.9).
 
-use crate::chunking::{plan_chunks, DEFAULT_CHUNK_SIZE};
+use crate::chunking::{DEFAULT_CHUNK_SIZE, plan_chunks};
 use crate::hashing::Hash;
 use serde::{Deserialize, Serialize};
 

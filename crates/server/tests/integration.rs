@@ -15,7 +15,7 @@ use blt_core::runtime::{Component, DataRoot};
 use blt_core::transfer::{validate_deep, validate_quick, verify_and_write};
 use blt_server::config::Config;
 use blt_server::state::{AppState, SharedState};
-use blt_server::{db, library, Supervisor};
+use blt_server::{Supervisor, db, library};
 use futures_util::{SinkExt, StreamExt};
 use std::fs;
 use std::net::SocketAddr;
@@ -149,10 +149,12 @@ async fn scan_publishes_manifest_excluding_sidecar() {
         .await
         .expect("manifest json");
     manifest.validate_structure().expect("consistent");
-    assert!(manifest
-        .files
-        .iter()
-        .all(|f| !f.rel_path.starts_with(".blt")));
+    assert!(
+        manifest
+            .files
+            .iter()
+            .all(|f| !f.rel_path.starts_with(".blt"))
+    );
     assert_eq!(manifest.files.len(), 3);
     // bin/game.exe is 3 chunks at the test chunk size
     let exe = manifest
@@ -724,16 +726,16 @@ async fn ws_connect(
     name: &str,
     mode: Mode,
 ) -> (
-    impl SinkExt<
-            tokio_tungstenite::tungstenite::Message,
-            Error = tokio_tungstenite::tungstenite::Error,
-        > + Unpin,
+    impl SinkExt<tokio_tungstenite::tungstenite::Message, Error = tokio_tungstenite::tungstenite::Error>
+    + Unpin
+    + use<>,
     impl StreamExt<
-            Item = Result<
-                tokio_tungstenite::tungstenite::Message,
-                tokio_tungstenite::tungstenite::Error,
-            >,
-        > + Unpin,
+        Item = Result<
+            tokio_tungstenite::tungstenite::Message,
+            tokio_tungstenite::tungstenite::Error,
+        >,
+    > + Unpin
+    + use<>,
 ) {
     let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
         .await

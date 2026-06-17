@@ -5,7 +5,7 @@
 
 use crate::bindings::advertise_ip;
 use crate::state::SharedState;
-use blt_core::discovery::{build_txt, AdvertisedServer, SERVICE_TYPE};
+use blt_core::discovery::{AdvertisedServer, SERVICE_TYPE, build_txt};
 use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
 use tracing::{info, warn};
 

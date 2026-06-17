@@ -6,7 +6,7 @@
 use blt_core::hashing::Hash;
 use blt_core::manifest::{ChunkEntry, FileEntry, Manifest};
 use blt_core::protocol::{ShareKind, ShareSummary};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
 use std::path::Path;
 

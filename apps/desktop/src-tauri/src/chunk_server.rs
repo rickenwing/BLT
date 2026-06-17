@@ -5,11 +5,11 @@
 
 use crate::db;
 use crate::state::Shared;
+use axum::Router;
 use axum::extract::{Path as AxPath, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use axum::Router;
 use blt_core::manifest::Manifest;
 use blt_core::p2p::TokenBucket;
 use parking_lot::Mutex;

@@ -97,34 +97,36 @@ pub fn load(state: &Shared, window: &WebviewWindow, url: &str) -> Result<(), Str
         .map_err(|e| format!("could not launch mpv ({e}) — is it installed?"))?;
 
     let state = state.clone();
-    std::thread::spawn(move || loop {
-        // Superseded by a newer load() or a stop()? Kill this player, no advance.
-        if state.mpv.lock().generation != generation {
-            let _ = child.kill();
-            let _ = child.wait();
-            return;
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success() {
-                    // Natural end-of-file (or `q`) → advance the jukebox.
-                    let _ = app.emit("mpv-ended", ());
-                } else {
-                    // mpv couldn't play it — surface the error instead of silently
-                    // skipping, and log its stderr so failures are diagnosable.
-                    let mut err = String::new();
-                    if let Some(mut e) = child.stderr.take() {
-                        use std::io::Read;
-                        let _ = e.read_to_string(&mut err);
-                    }
-                    let err = err.trim().to_string();
-                    warn!(code = status.code(), stderr = %err, "mpv exited with error");
-                    let _ = app.emit("mpv-failed", err);
-                }
+    std::thread::spawn(move || {
+        loop {
+            // Superseded by a newer load() or a stop()? Kill this player, no advance.
+            if state.mpv.lock().generation != generation {
+                let _ = child.kill();
+                let _ = child.wait();
                 return;
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(250)),
-            Err(_) => return,
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        // Natural end-of-file (or `q`) → advance the jukebox.
+                        let _ = app.emit("mpv-ended", ());
+                    } else {
+                        // mpv couldn't play it — surface the error instead of silently
+                        // skipping, and log its stderr so failures are diagnosable.
+                        let mut err = String::new();
+                        if let Some(mut e) = child.stderr.take() {
+                            use std::io::Read;
+                            let _ = e.read_to_string(&mut err);
+                        }
+                        let err = err.trim().to_string();
+                        warn!(code = status.code(), stderr = %err, "mpv exited with error");
+                        let _ = app.emit("mpv-failed", err);
+                    }
+                    return;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(250)),
+                Err(_) => return,
+            }
         }
     });
     Ok(())

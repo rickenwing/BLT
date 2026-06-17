@@ -3,7 +3,7 @@
 //! for durable state (CLAUDE.md conventions).
 
 use blt_core::bitmap::Bitmap;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 
 pub fn open(path: &Path) -> anyhow::Result<Connection> {

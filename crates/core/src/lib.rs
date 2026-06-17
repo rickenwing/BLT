@@ -45,7 +45,7 @@ pub const APP_ID: &str = "BLT";
 pub const APP_NAME: &str = "Buttz LAN Tool";
 
 pub use bitmap::Bitmap;
-pub use chunking::{plan_chunks, ChunkPlan, DEFAULT_CHUNK_SIZE};
-pub use hashing::{hash_bytes, verify, Hash, StreamHasher};
-pub use manifest::{diff, ChunkLocator, FileEntry, Manifest, ManifestDiff};
+pub use chunking::{ChunkPlan, DEFAULT_CHUNK_SIZE, plan_chunks};
+pub use hashing::{Hash, StreamHasher, hash_bytes, verify};
+pub use manifest::{ChunkLocator, FileEntry, Manifest, ManifestDiff, diff};
 pub use protocol::{ClientMsg, Mode, ServerMsg};

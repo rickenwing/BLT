@@ -13,12 +13,12 @@
 //! page parameterised by a sanitised video id; no filesystem or app access.
 
 use crate::state::Shared;
+use axum::Router;
 use axum::body::Body;
 use axum::extract::Query;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use serde::Deserialize;
 use tracing::{info, warn};
 

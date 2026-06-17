@@ -8,10 +8,10 @@
 //! - `--headless`          accepted for symmetry; the server currently always
 //!   runs headless (tray UX lands in M8 polish)
 
-use blt_core::runtime::{logging, Component, DataRoot};
+use blt_core::runtime::{Component, DataRoot, logging};
 use blt_server::config::Config;
 use blt_server::state::AppState;
-use blt_server::{db, jukebox, mdns, tasks, Supervisor};
+use blt_server::{Supervisor, db, jukebox, mdns, tasks};
 use std::path::PathBuf;
 use tracing::{error, info};
 

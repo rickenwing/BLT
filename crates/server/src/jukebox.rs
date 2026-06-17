@@ -5,9 +5,9 @@
 //! items put the queue into `PlayingExternal` (awaiting-human, no auto-advance);
 //! `Next` (human) is the way out (F10).
 
-use blt_core::jukebox::{order_up_next, OrderMode, QueueItem};
+use blt_core::jukebox::{OrderMode, QueueItem, order_up_next};
 use blt_core::protocol::{ItemType, JukeboxItemDto, JukeboxState, PlaybackState};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 
 /// In-memory authoritative jukebox state (queue rows live in the DB).

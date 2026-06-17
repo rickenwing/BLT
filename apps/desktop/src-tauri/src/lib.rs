@@ -13,7 +13,7 @@ pub mod server_api;
 pub mod state;
 pub mod ws;
 
-use blt_core::runtime::{logging, Component, DataRoot};
+use blt_core::runtime::{Component, DataRoot, logging};
 use state::{ClientState, Settings};
 use std::sync::Arc;
 use tracing::{error, info};

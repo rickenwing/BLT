@@ -13,7 +13,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::SharedState;
 use crate::util::now_unix;
 use axum::extract::{Multipart, Path as AxPath, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -363,7 +363,7 @@ async fn delete_share(
         _ => {
             return Err(ApiError::Forbidden(
                 "only the uploader (or the admin, via the admin panel) can delete".into(),
-            ))
+            ));
         }
     }
     remove_share_data(&state, id, &stored_path).await?;

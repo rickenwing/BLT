@@ -4,7 +4,7 @@
 
 use crate::db;
 use crate::state::Shared;
-use blt_core::discovery::{parse_txt, SERVICE_TYPE};
+use blt_core::discovery::{SERVICE_TYPE, parse_txt};
 use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent};
 use tauri::Emitter;
 use tracing::{info, warn};
