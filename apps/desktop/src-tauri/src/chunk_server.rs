@@ -1,6 +1,6 @@
 //! The client chunk server (TDD §7): when `share_back` is on, a tiny HTTP
 //! listener serves `/chunks/{file_id}/{idx}` for chunks present in this
-//! client's bitmaps, rate-capped by a token bucket (default 1.5 MB/s, F4.11).
+//! client's bitmaps, rate-capped by a token bucket (default 10 MB/s, F4.11).
 //! Playback machines never run it (HARD CONSTRAINT #8).
 
 use crate::db;

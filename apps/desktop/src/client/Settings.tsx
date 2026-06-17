@@ -322,7 +322,7 @@ export default function Settings({
             <input
               type="range"
               min={256}
-              max={10240}
+              max={81920}
               step={256}
               value={cap}
               onChange={(e) => setCap(Number(e.target.value))}

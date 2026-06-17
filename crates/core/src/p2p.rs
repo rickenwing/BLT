@@ -3,7 +3,7 @@
 //! The networking (a tiny HTTP chunk server per client, the WS peer registry)
 //! lives in the server/desktop crates; the *decisions* live here:
 //!
-//! - [`TokenBucket`] — the client upload rate cap (default 1.5 MB/s, F4.11).
+//! - [`TokenBucket`] — the client upload rate cap (default 10 MB/s, F4.11).
 //! - [`Ewma`] / [`PeerRate`] — measured per-peer delivery rate (F13.6), no
 //!   synthetic benchmark; band differences manifest only as a slower number.
 //! - [`assign`] — the throughput-weighted chunk scheduler (F13.7): the server
@@ -13,8 +13,17 @@
 
 use std::collections::{HashMap, HashSet};
 
-/// Default client upload (seed) cap: 1.5 MB/s = 1,572,864 B/s (F4.11).
-pub const DEFAULT_UPLOAD_CAP_BPS: u64 = 1_572_864;
+/// Default client upload (seed) cap: 10 MB/s = 10,485,760 B/s (F4.11). The UI
+/// lets the user raise this up to an 80 MB/s ceiling.
+pub const DEFAULT_UPLOAD_CAP_BPS: u64 = 10 * 1024 * 1024;
+
+/// Baseline peer throughput the *download scheduler* assumes for weighting (a
+/// conservative "typical capped peer"): the server is weighted well above it,
+/// and an unmeasured peer bootstraps at it until a real measurement replaces it.
+/// Deliberately kept independent of [`DEFAULT_UPLOAD_CAP_BPS`] — the server's own
+/// throughput doesn't change when a peer raises its seed cap, so raising that cap
+/// must not distort how download chunks are split between server and peers.
+const SCHED_PEER_BASELINE_BPS: f64 = 1_572_864.0; // 1.5 MiB/s
 
 /// A token bucket for rate-capping uploads. Time is injected via
 /// [`TokenBucket::refill`] so behaviour is deterministic in tests; a real
@@ -30,7 +39,7 @@ impl TokenBucket {
     /// `rate_bps` bytes/sec. The burst is sized to hold at least one default
     /// chunk (4 MiB) so `try_take(chunk_len)` can always eventually succeed —
     /// a burst smaller than the largest request would livelock the seeder
-    /// (rate 1.5 MB/s < chunk 4 MiB).
+    /// (e.g. a low cap of 256 KiB/s < chunk 4 MiB).
     pub fn new(rate_bps: f64) -> Self {
         let rate = rate_bps.max(0.0);
         let burst = rate.max(crate::chunking::DEFAULT_CHUNK_SIZE as f64);
@@ -171,12 +180,14 @@ pub struct SchedulerConfig {
 
 impl Default for SchedulerConfig {
     fn default() -> Self {
-        // Server weight well above a single capped peer (1.5 MB/s) so the server
-        // dominates while peers still offload a visible slice.
+        // Server weight well above a single capped peer so the server dominates
+        // while peers still offload a visible slice. Anchored to the scheduler
+        // baseline (not the seed cap) so a higher seed cap doesn't shrink P2P's
+        // share — see SCHED_PEER_BASELINE_BPS.
         SchedulerConfig {
-            server_weight: 8.0 * DEFAULT_UPLOAD_CAP_BPS as f64,
+            server_weight: 8.0 * SCHED_PEER_BASELINE_BPS,
             peer_floor_bps: 32.0 * 1024.0, // 32 KB/s
-            bootstrap_weight: DEFAULT_UPLOAD_CAP_BPS as f64,
+            bootstrap_weight: SCHED_PEER_BASELINE_BPS,
         }
     }
 }
@@ -274,10 +285,12 @@ mod tests {
 
     #[test]
     fn token_bucket_default_burst_fits_a_chunk_and_impossible_is_infinite() {
-        // Regression: rate 1.5 MB/s < 4 MiB chunk used to livelock — try_take
-        // could never succeed and time_until returned a finite lie.
+        // Regression: a low cap (rate < 4 MiB chunk) used to livelock — try_take
+        // could never succeed and time_until returned a finite lie. Use an
+        // explicit sub-chunk rate (1.5 MiB/s), since the default cap now exceeds
+        // the chunk size and wouldn't exercise this.
         let chunk = crate::chunking::DEFAULT_CHUNK_SIZE as f64;
-        let mut tb = TokenBucket::new(DEFAULT_UPLOAD_CAP_BPS as f64);
+        let mut tb = TokenBucket::new(1_572_864.0);
         assert!(tb.try_take(chunk), "burst must hold one default chunk");
         // and the bucket refills back up to a full chunk eventually
         tb.refill(10.0);
