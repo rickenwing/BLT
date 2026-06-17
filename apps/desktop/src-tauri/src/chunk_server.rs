@@ -43,7 +43,7 @@ pub async fn start(state: Shared) -> Option<u16> {
     });
     let router = Router::new()
         .route("/ping", get(|| async { "blt" }))
-        .route("/chunks/:file_id/:idx", get(serve_chunk))
+        .route("/chunks/{file_id}/{idx}", get(serve_chunk))
         .with_state(seed);
 
     let listener = match tokio::net::TcpListener::bind("0.0.0.0:0").await {

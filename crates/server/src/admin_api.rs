@@ -44,22 +44,25 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/interfaces", get(interfaces))
         .route("/api/config", get(get_config).put(put_config))
         .route("/api/scan", post(scan_now))
-        .route("/api/services/:kind/restart", post(restart_service))
+        .route("/api/services/{kind}/restart", post(restart_service))
         .route("/api/server/restart", post(restart_server))
         .route("/api/fs", get(fs_browse))
         .route("/api/update/check", get(update_check))
         .route("/api/update/install", post(update_install))
         .route("/api/titles", get(titles))
-        .route("/api/titles/:id/label", put(set_label))
+        .route("/api/titles/{id}/label", put(set_label))
         .route("/api/shares", get(admin_shares))
-        .route("/api/shares/:id", axum::routing::delete(admin_delete_share))
+        .route(
+            "/api/shares/{id}",
+            axum::routing::delete(admin_delete_share),
+        )
         .route("/api/jukebox", get(jukebox_state))
         .route("/api/jukebox/items", post(jukebox_add))
         .route(
-            "/api/jukebox/items/:id",
+            "/api/jukebox/items/{id}",
             axum::routing::delete(jukebox_remove),
         )
-        .route("/api/jukebox/items/:id/top", post(jukebox_top))
+        .route("/api/jukebox/items/{id}/top", post(jukebox_top))
         .route("/api/jukebox/next", post(jukebox_next))
         .route("/api/jukebox/clear", post(jukebox_clear))
         .route("/api/jukebox/mode", put(jukebox_mode))

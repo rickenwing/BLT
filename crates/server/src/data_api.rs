@@ -27,11 +27,11 @@ use tracing::{debug, info, warn};
 pub fn router(state: SharedState) -> Router {
     Router::new()
         .route("/titles", get(list_titles))
-        .route("/titles/:id/info", get(title_info))
-        .route("/titles/:id/manifest", get(title_manifest))
-        .route("/titles/:id/script", get(title_script))
-        .route("/titles/:id/files/:file_id", get(serve_file))
-        .route("/chunks/:file_id/:idx", get(serve_chunk))
+        .route("/titles/{id}/info", get(title_info))
+        .route("/titles/{id}/manifest", get(title_manifest))
+        .route("/titles/{id}/script", get(title_script))
+        .route("/titles/{id}/files/{file_id}", get(serve_file))
+        .route("/chunks/{file_id}/{idx}", get(serve_chunk))
         .route("/admin/verify", axum::routing::post(verify_admin))
         .route("/ws", get(ws_upgrade))
         .with_state(state)
@@ -311,7 +311,7 @@ async fn ws_session(state: SharedState, socket: WebSocket, remote: SocketAddr) {
                     continue;
                 }
             };
-            if sink.send(Message::Text(text)).await.is_err() {
+            if sink.send(Message::Text(text.into())).await.is_err() {
                 break;
             }
         }

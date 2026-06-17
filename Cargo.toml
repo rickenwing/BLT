@@ -20,30 +20,30 @@ blt-core = { path = "crates/core" }
 blake3 = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.7", features = ["ws", "macros"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
-rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+tower-http = { version = "0.7", features = ["fs", "cors", "trace"] }
+rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }
-mdns-sd = "0.11"
+mdns-sd = "0.20"
 if-addrs = "0.13"
 local-ip-address = "0.6"
 uuid = { version = "1", features = ["v4", "serde"] }
-notify = "6"
 walkdir = "2"
 futures = "0.3"
 futures-util = "0.3"
 bytes = "1"
 hex = "0.4"
-argon2 = "0.5"
-rand = "0.8"
-toml = "0.8"
+# `std` pulls password-hash/std → rand_core/getrandom, which is what exposes
+# `OsRng` for salt generation (previously enabled implicitly via the `rand` dep).
+argon2 = { version = "0.5", features = ["std"] }
+toml = "1"
 time = { version = "0.3", features = ["formatting", "macros"] }
 percent-encoding = "2"
 parking_lot = "0.12"

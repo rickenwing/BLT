@@ -31,8 +31,8 @@ pub const CLIENT_ID_HEADER: &str = "x-blt-client-id";
 pub fn router(state: SharedState) -> Router {
     Router::new()
         .route("/shares", get(list_shares).post(upload_share))
-        .route("/shares/:id", get(share_listing).delete(delete_share))
-        .route("/shares/:id/files/*rel", get(serve_share_file))
+        .route("/shares/{id}", get(share_listing).delete(delete_share))
+        .route("/shares/{id}/files/{*rel}", get(serve_share_file))
         .with_state(state)
         // Folder uploads can be large; uploads stream to disk part by part.
         .layer(axum::extract::DefaultBodyLimit::disable())
