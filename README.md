@@ -21,6 +21,26 @@ jukebox for a LAN party among trusted friends. Windows + macOS.
 | **Jukebox** — queue + upvote voting | **Playback machine** — video playback, auto-advance |
 | ![Jukebox](assets/screenshots/jukebox.png) | ![Playback](assets/screenshots/playback.png) |
 
+## Footprint
+
+Built to disappear into the background — it shouldn't be the reason a machine
+chugs mid-party.
+
+- **Native, not Electron.** The desktop app is Tauri 2 — a small Rust binary
+  driving the OS's built-in WebView (WKWebView / WebView2), so there's no
+  bundled Chromium. The server and shared `core` are pure Rust: native code, no
+  VM or garbage collector, one embedded SQLite (no separate database process).
+- **Idle means idle.** State is *pushed* over the `/ws` live channel, never
+  polled, so a client sitting in the lobby uses essentially no CPU.
+- **No transcoding.** Playback hands video to the native WebView (or mpv); BLT
+  never re-encodes, so the TV box stays cool.
+- **Works only when working.** The one real cost is BLAKE3 hashing during a
+  transfer — SIMD-fast, and only while a download/seed is active. Otherwise the
+  server is I/O-bound, just serving and verifying chunks.
+
+In practice the Rust processes idle at a few tens of MB of RAM and near-zero
+CPU, scaling up only with active transfers.
+
 ## Build from source
 
 Prereqs: Rust (stable), Node 22+.
