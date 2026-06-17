@@ -46,7 +46,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
       - name: Install frontend deps
         run: npm ci
         working-directory: apps/desktop
@@ -82,7 +82,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
       - name: Build admin SPA (served by the server)
         run: npm ci && npm run build
         working-directory: admin-web
