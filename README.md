@@ -12,6 +12,15 @@ jukebox for a LAN party among trusted friends. Windows + macOS.
 - **`Buttz LAN Tool.app` / `.exe`** — Tauri desktop app; runs in **client**
   (players) or **playback** mode (the machine wired to the TV).
 
+## Screenshots
+
+| | |
+|:---:|:---:|
+| **Game library** | **Downloads** — resumable, BLAKE3-verified, peer-accelerated |
+| ![Game library](assets/screenshots/library.png) | ![Downloads](assets/screenshots/downloads.png) |
+| **Jukebox** — queue + upvote voting | **Playback machine** — embedded video, auto-advance |
+| ![Jukebox](assets/screenshots/jukebox.png) | ![Playback](assets/screenshots/playback.png) |
+
 ## Build from source
 
 Prereqs: Rust (stable), Node 22+.
@@ -64,10 +73,16 @@ and cap under Settings).
 
 First launch: pick **Playback machine** (or lock an existing client via
 Settings → Playback lockdown — requires the admin password, as does exiting).
-It plays the jukebox queue: YouTube and shared/direct videos embedded with
-auto-advance; Netflix/Hulu/Prime items open in the real browser and wait for
-a human to press **Next**.
+It plays the jukebox queue with auto-advance: **YouTube** plays embedded;
+**shared-pool and direct-URL videos play via [mpv](https://mpv.io)**;
+Netflix/Hulu/Prime items open in the real browser and wait for a human to press
+**Next**.
 
+> **Install mpv on the playback machine** (`brew install mpv` / `winget install
+> mpv`) for broad codec support — HEVC/10-bit, MKV, FLAC/DTS, etc. Without it,
+> local videos fall back to the webview's built-in player, which only handles
+> browser-native formats. (mpv is only needed on the playback box.)
+>
 > Log into the streaming services in that browser **before** the party.
 
 ## Pre-party network checklist (TDD §16)
