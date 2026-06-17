@@ -18,7 +18,7 @@ jukebox for a LAN party among trusted friends. Windows + macOS.
 |:---:|:---:|
 | **Game library** | **Downloads** — resumable, BLAKE3-verified, peer-accelerated |
 | ![Game library](assets/screenshots/library.png) | ![Downloads](assets/screenshots/downloads.png) |
-| **Jukebox** — queue + upvote voting | **Playback machine** — embedded video, auto-advance |
+| **Jukebox** — queue + upvote voting | **Playback machine** — video playback, auto-advance |
 | ![Jukebox](assets/screenshots/jukebox.png) | ![Playback](assets/screenshots/playback.png) |
 
 ## Build from source
@@ -85,7 +85,7 @@ Netflix/Hulu/Prime items open in the real browser and wait for a human to press
 >
 > Log into the streaming services in that browser **before** the party.
 
-## Pre-party network checklist (TDD §16)
+## Pre-party network checklist
 
 - Allow the apps through the OS firewall on first launch (Windows: set the
   network profile to **Private**). If denied, discovery and transfers fail
