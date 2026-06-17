@@ -156,6 +156,9 @@ pub struct ClientState {
     pub mpv: Mutex<crate::mpv::MpvPlayer>,
     /// Smoothed seed (upload) throughput — chunks served to peers (People column).
     pub seed_meter: Mutex<blt_core::ratemeter::RateMeter>,
+    /// Last reported roster activity, re-sent periodically so an idle-but-seeding
+    /// client keeps its seed speed fresh in the roster.
+    pub last_activity: RwLock<String>,
 }
 
 pub type Shared = Arc<ClientState>;

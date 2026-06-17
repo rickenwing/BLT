@@ -73,6 +73,7 @@ pub fn run() {
         xfer_seq: std::sync::atomic::AtomicU64::new(1),
         mpv: parking_lot::Mutex::new(mpv::MpvPlayer::default()),
         seed_meter: parking_lot::Mutex::new(blt_core::ratemeter::RateMeter::new()),
+        last_activity: parking_lot::RwLock::new("idle".to_string()),
     });
 
     // Reconnect to the last server automatically (F3.4).
@@ -165,6 +166,20 @@ pub fn run() {
             let media_state = boot_state.clone();
             tauri::async_runtime::spawn(async move {
                 media_proxy::start(media_state).await;
+            });
+            // Periodic roster refresh so an idle-but-seeding client keeps a live
+            // seed speed (the download path alone never reports for a pure seeder).
+            let seed_state = boot_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut was_seeding = false;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let seeding = seed_state.seed_meter.lock().rate_bps() > 0;
+                    if seeding || was_seeding {
+                        downloads::send_activity(&seed_state);
+                    }
+                    was_seeding = seeding;
+                }
             });
             Ok(())
         })

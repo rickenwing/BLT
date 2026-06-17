@@ -795,9 +795,18 @@ fn persist(
 }
 
 fn report_activity(state: &Shared, activity: &str) {
+    *state.last_activity.write() = activity.to_string();
+    send_activity(state);
+}
+
+/// Push the current activity + seed rate to the roster. Called on activity
+/// changes and periodically (so an idle-but-seeding client keeps a live seed
+/// speed in the roster — the download path alone never fires for a pure seeder).
+pub fn send_activity(state: &Shared) {
     let server_only = state.live.read().p2p_reachable == Some(false);
+    let activity = state.last_activity.read().clone();
     state.send_ws(blt_core::protocol::ClientMsg::Activity {
-        activity: activity.to_string(),
+        activity,
         throughput_bps: Some(state.seed_meter.lock().rate_bps()).filter(|&r| r > 0),
         server_only,
     });
