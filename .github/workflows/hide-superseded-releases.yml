@@ -1,0 +1,36 @@
+# When a release is published, draft every *other* published release so the
+# Releases page only ever shows the newest version. The updater is unaffected:
+# `releases/latest` resolves to the newest non-draft, non-prerelease release,
+# which is the one just published. Drafting a release leaves its git tag intact,
+# and editing a release to draft fires `unpublished`/`edited` (not `published`),
+# so this can't loop.
+name: Hide superseded releases
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  hide-old:
+    # Publishing a prerelease must not hide the stable releases.
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Draft all releases except the one just published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          echo "Keeping ${KEEP_TAG}; drafting older published releases."
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
+            --json tagName,isDraft \
+            --jq '.[] | select(.isDraft == false) | .tagName' \
+          | while read -r tag; do
+              if [ -n "$tag" ] && [ "$tag" != "$KEEP_TAG" ]; then
+                echo "Hiding $tag"
+                gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=true
+              fi
+            done
