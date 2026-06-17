@@ -60,6 +60,7 @@ struct Job {
 struct Active {
     title_id: u64,
     manifest_ver: u32,
+    name: String,
     paused: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
     bytes_done: AtomicU64,
@@ -221,7 +222,7 @@ impl DownloadManager {
             out.push(QueueEntry {
                 title_id: a.title_id,
                 manifest_ver: a.manifest_ver,
-                name: String::new(), // filled from DB rows below if needed
+                name: a.name.clone(),
                 dest: String::new(),
                 status: if a.paused.load(Ordering::SeqCst) {
                     "pausing".into()
@@ -266,7 +267,12 @@ impl DownloadManager {
                     out.push(QueueEntry {
                         title_id: r.title_id,
                         manifest_ver: r.manifest_ver,
-                        name: String::new(),
+                        // No persisted name; the dest folder is the game name.
+                        name: std::path::Path::new(&r.dest_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string(),
                         dest: r.dest_path,
                         status: r.status,
                         total_chunks: r.chunk_count,
@@ -377,6 +383,17 @@ async fn run_job(state: &Shared, app: &tauri::AppHandle, job: &Job) -> anyhow::R
     let active = Arc::new(Active {
         title_id: job.title_id,
         manifest_ver: job.manifest_ver,
+        // The job name, or the dest folder (the game name) — never bare "Title #N"
+        // (drives both the Downloads page and the sidebar Transfers label).
+        name: if job.name.is_empty() {
+            job.dest
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string()
+        } else {
+            job.name.clone()
+        },
         ..Default::default()
     });
     active.total.store(total_chunks, Ordering::SeqCst);

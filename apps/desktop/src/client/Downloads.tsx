@@ -32,7 +32,9 @@ export default function Downloads() {
       {active.map((q) => (
         <div className="panel" key={`${q.title_id}-${q.manifest_ver}`}>
           <div className="row">
-            <strong className="grow">Title #{q.title_id} (v{q.manifest_ver})</strong>
+            <strong className="grow">
+              {q.name || `Title #${q.title_id}`} (v{q.manifest_ver})
+            </strong>
             <span className="dim">{formatSpeed(q.speed_bps)}</span>
             <button onClick={() => api.pauseDownload(q.title_id)}>⏸ Pause</button>
             <button className="danger" onClick={() => api.cancelDownload(q.title_id)}>
@@ -96,7 +98,8 @@ export default function Downloads() {
                 {rest.map((q) => (
                   <tr key={`${q.title_id}-${q.manifest_ver}`}>
                     <td>
-                      Title #{q.title_id} <span className="dim">v{q.manifest_ver}</span>
+                      {q.name || `Title #${q.title_id}`}{" "}
+                      <span className="dim">v{q.manifest_ver}</span>
                       <div className="dim" style={{ fontSize: 11 }}>{q.dest}</div>
                     </td>
                     <td>
