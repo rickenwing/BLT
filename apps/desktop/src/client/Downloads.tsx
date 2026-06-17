@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, confirmDialog, formatBytes, formatSpeed, notify, on, QueueEntry } from "../lib/api";
+import {
+  api,
+  confirmDialog,
+  formatBytes,
+  formatEta,
+  formatSpeed,
+  notify,
+  on,
+  QueueEntry,
+} from "../lib/api";
 
 export default function Downloads() {
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -35,7 +44,12 @@ export default function Downloads() {
             <strong className="grow">
               {q.name || `Title #${q.title_id}`} (v{q.manifest_ver})
             </strong>
-            <span className="dim">{formatSpeed(q.speed_bps)}</span>
+            <span className="dim">
+              {formatSpeed(q.speed_bps)}
+              {q.speed_bps > 0 && q.bytes_total > q.bytes_done
+                ? ` · ~${formatEta(q.bytes_total - q.bytes_done, q.speed_bps)} left`
+                : ""}
+            </span>
             <button onClick={() => api.pauseDownload(q.title_id)}>⏸ Pause</button>
             <button className="danger" onClick={() => api.cancelDownload(q.title_id)}>
               ✕ Cancel

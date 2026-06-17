@@ -303,3 +303,16 @@ export function formatBytes(n: number): string {
 export function formatSpeed(bps: number): string {
   return `${formatBytes(bps)}/s`;
 }
+
+/** Estimated time remaining as a coarse, stable string ("45s", "3m", "1h 4m").
+ *  Minute granularity above 60s keeps it from jittering on the ~1s speed window.
+ *  Returns "—" when there's no usable rate (stalled / paused / just started). */
+export function formatEta(remainingBytes: number, bps: number): string {
+  if (bps <= 0 || remainingBytes <= 0) return "—";
+  const secs = Math.ceil(remainingBytes / bps);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  return `${h}h ${mins % 60}m`;
+}

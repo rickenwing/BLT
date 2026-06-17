@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, formatBytes, formatSpeed, on, TransferRow } from "../lib/api";
+import { api, formatBytes, formatEta, formatSpeed, on, TransferRow } from "../lib/api";
 
 const APP_TITLE = "Buttz LAN Tool";
 
@@ -74,6 +74,9 @@ export default function Transfers() {
             <div className="xfer-sub">
               {formatBytes(t.done)} / {formatBytes(t.total)}
               {t.speed_bps ? ` · ${formatSpeed(t.speed_bps)}` : ""}
+              {t.speed_bps > 0 && t.total > t.done
+                ? ` · ~${formatEta(t.total - t.done, t.speed_bps)} left`
+                : ""}
             </div>
           </div>
         );
