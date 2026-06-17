@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, formatBytes, formatSpeed, on, QueueEntry } from "../lib/api";
+import { api, confirmDialog, formatBytes, formatSpeed, notify, on, QueueEntry } from "../lib/api";
 
 export default function Downloads() {
   const [queue, setQueue] = useState<QueueEntry[]>([]);
@@ -121,7 +121,7 @@ export default function Downloads() {
                           onClick={() =>
                             api
                               .resumeDownload(q.title_id, q.manifest_ver, q.name || `Title #${q.title_id}`)
-                              .catch((e) => alert(String(e)))
+                              .catch((e) => void notify(String(e)))
                           }
                         >
                           ▶ Resume
@@ -129,16 +129,16 @@ export default function Downloads() {
                       )}
                       <button
                         className="danger"
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            window.confirm(
+                            await confirmDialog(
                               `Remove "${q.name || `Title #${q.title_id}`}" and delete its files from disk?`,
                             )
                           )
                             api
                               .deleteGame(q.title_id)
                               .then(load)
-                              .catch((e) => alert(String(e)));
+                              .catch((e) => void notify(String(e)));
                         }}
                       >
                         🗑 Remove

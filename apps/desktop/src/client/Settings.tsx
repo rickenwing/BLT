@@ -2,8 +2,10 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   api,
   AppBootState,
+  confirmDialog,
   ConnectionState,
   formatBytes,
+  notify,
   on,
   ServerRow,
   UpdateInfo,
@@ -35,7 +37,7 @@ function UpdatesPanel({ version }: { version: string }) {
 
   async function install() {
     if (
-      !window.confirm(
+      !await confirmDialog(
         `Download and install v${update?.version}? The app restarts when it finishes.`,
       )
     )
@@ -148,14 +150,14 @@ export default function Settings({
     try {
       await api.connectTo(game, share ?? null, label ?? null);
     } catch (e) {
-      alert(String(e));
+      void notify(String(e));
     }
   }
 
   async function enterLockdown() {
     if (!lockPw) return;
     if (
-      !window.confirm(
+      !await confirmDialog(
         "Lock this machine to playback-only? It will restart into the jukebox UI " +
           "and can only be unlocked with the admin password.",
       )
@@ -164,7 +166,7 @@ export default function Settings({
     try {
       await api.lockdownEnter(lockPw);
     } catch (e) {
-      alert(String(e));
+      void notify(String(e));
     }
   }
 

@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, ItemType, JukeboxState, on, ShareSummary } from "../lib/api";
+import { api, confirmDialog, ItemType, JukeboxState, notify, on, ShareSummary } from "../lib/api";
 
 const TYPE_LABELS: Record<ItemType, string> = {
   youtube: "YouTube",
@@ -53,7 +53,7 @@ export default function Jukebox() {
     // External/DRM items will open a browser on the playback machine — the
     // explicit confirmation lives here in the initiating UI (#5 / F10).
     if (addType === "external") {
-      const ok = window.confirm(
+      const ok = await confirmDialog(
         "External links (Netflix/Hulu/Prime…) open in the playback machine's real browser " +
           "and wait for a human to press Next. Add it?",
       );
@@ -64,7 +64,7 @@ export default function Jukebox() {
       setAddRef("");
       setAddTitle("");
     } catch (e2) {
-      alert(String(e2));
+      void notify(String(e2));
     }
   }
 

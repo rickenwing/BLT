@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, AppBootState, JukeboxItem, JukeboxState, on } from "../lib/api";
+import { api, AppBootState, JukeboxItem, JukeboxState, notify, on } from "../lib/api";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /** Extract a YouTube video id from the usual URL shapes. */
@@ -59,14 +59,14 @@ export default function Playback({ boot }: { boot: AppBootState }) {
   }, [state]);
 
   async function next() {
-    await api.jukeboxNext().catch((e) => alert(String(e)));
+    await api.jukeboxNext().catch((e) => void notify(String(e)));
   }
 
   async function unlock() {
     try {
       await api.lockdownExit(unlockPw);
     } catch (e) {
-      alert(String(e));
+      void notify(String(e));
     }
   }
 

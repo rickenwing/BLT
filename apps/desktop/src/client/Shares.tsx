@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, formatBytes, ShareDownloadOut, ShareSummary } from "../lib/api";
+import { api, confirmDialog, formatBytes, notify, ShareDownloadOut, ShareSummary } from "../lib/api";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
@@ -43,7 +43,7 @@ export default function Shares() {
   async function confirmAndUpload(paths: string[]) {
     if (paths.length === 0) return;
     const names = paths.map((p) => p.split(/[\\/]/).pop()).join(", ");
-    if (!window.confirm(`Share with the group?\n\n${names}\n\nFolders upload their whole tree.`)) {
+    if (!await confirmDialog(`Share with the group?\n\n${names}\n\nFolders upload their whole tree.`)) {
       return;
     }
     setBusy(true);
@@ -51,7 +51,7 @@ export default function Shares() {
       await api.shareUpload(paths);
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -74,31 +74,31 @@ export default function Shares() {
     // Free-space pre-flight (F6.6): warn + confirm, never block (#6).
     const [enough, avail] = await api.preflightDest(dir, s.size);
     if (!enough) {
-      const cont = window.confirm(
+      const cont = await confirmDialog(
         `The destination may not have enough space (${formatBytes(avail ?? 0)} free, ` +
           `${formatBytes(s.size)} needed). Continue anyway?`,
       );
       if (!cont) return;
     }
-    if (!window.confirm(`Download "${s.name}" (${formatBytes(s.size)}) to ${dir}?`)) return;
+    if (!await confirmDialog(`Download "${s.name}" (${formatBytes(s.size)}) to ${dir}?`)) return;
     setBusy(true);
     try {
       const res = await api.shareDownload(s.id, dir, onlyMissing);
       setLastResult((m) => ({ ...m, [s.id]: res }));
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(s: ShareSummary) {
-    if (!window.confirm(`Delete your share "${s.name}"? This removes it for everyone.`)) return;
+    if (!await confirmDialog(`Delete your share "${s.name}"? This removes it for everyone.`)) return;
     try {
       await api.shareDelete(s.id);
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     }
   }
 

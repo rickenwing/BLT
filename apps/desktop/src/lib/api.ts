@@ -2,6 +2,15 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { confirm as dlgConfirm, message as dlgMessage } from "@tauri-apps/plugin-dialog";
+
+// Native window.confirm/alert are no-ops in the Tauri webview (auto-resolve
+// true, no dialog), which silently defeats every confirmation gate (#5). Route
+// them through the dialog plugin instead.
+export const confirmDialog = (text: string): Promise<boolean> =>
+  dlgConfirm(text, { title: "Buttz LAN Tool" });
+export const notify = (text: string) =>
+  dlgMessage(text, { title: "Buttz LAN Tool" });
 
 // ── shared types (mirrors blt-core protocol + commands.rs DTOs) ──
 

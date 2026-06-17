@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  confirmDialog,
   formatBytes,
+  notify,
   on,
   ScriptPreview,
   Title,
@@ -136,7 +138,7 @@ function DownloadAll({ titles, reload }: { titles: Title[]; reload: () => void }
 
   async function run() {
     if (
-      !window.confirm(
+      !await confirmDialog(
         `Download ALL ${pending.length} titles (${formatBytes(total)} total)? They queue sequentially.`,
       )
     )
@@ -146,7 +148,7 @@ function DownloadAll({ titles, reload }: { titles: Title[]; reload: () => void }
       for (const t of pending) {
         const plan = await api.prepareDownload(t.id, t.name, t.total_size, null);
         if (!plan.enough_space) {
-          const cont = window.confirm(
+          const cont = await confirmDialog(
             `${t.label || t.name}: destination may not have enough space ` +
               `(${formatBytes(plan.available_bytes ?? 0)} free, ${formatBytes(t.total_size)} needed). Continue anyway?`,
           );
@@ -156,7 +158,7 @@ function DownloadAll({ titles, reload }: { titles: Title[]; reload: () => void }
       }
       reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -198,7 +200,7 @@ function TitleDetail({
       );
       // Free-space pre-flight: warn + confirm, never hard-block (F4.4 / #6).
       if (!plan.enough_space) {
-        const cont = window.confirm(
+        const cont = await confirmDialog(
           `The destination volume may not have enough space:\n\n` +
             `needed ${formatBytes(plan.needed_bytes)}, free ${formatBytes(plan.available_bytes ?? 0)}.\n\n` +
             `Download anyway (you can free space while it runs)?`,
@@ -208,7 +210,7 @@ function TitleDetail({
       await api.beginDownload(title.id, title.manifest_ver, name, plan.dest);
       reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -227,7 +229,7 @@ function TitleDetail({
     try {
       setValidation(await api.validateTitle(title.id, deep));
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -237,10 +239,10 @@ function TitleDetail({
     setBusy("repair");
     try {
       const n = await api.repairTitle(title.id, name);
-      alert(n === 0 ? "Nothing to repair — all chunks verify." : `Re-fetching ${n} chunks…`);
+      void notify(n === 0 ? "Nothing to repair — all chunks verify." : `Re-fetching ${n} chunks…`);
       reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -250,12 +252,12 @@ function TitleDetail({
     try {
       const s = await api.scriptPreview(title.id);
       if (!s) {
-        alert("No post-install script for this title.");
+        void notify("No post-install script for this title.");
         return;
       }
       setScript(s);
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      void notify(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -276,7 +278,7 @@ function TitleDetail({
 
   async function deleteGame() {
     if (
-      !window.confirm(
+      !await confirmDialog(
         `Delete "${title.label || title.name}" and remove its files from disk?\n\n` +
           `${title.local_dest ?? ""}\n\nThis cannot be undone.`,
       )
@@ -287,7 +289,7 @@ function TitleDetail({
       await api.deleteGame(title.id);
       onClose();
     } catch (e) {
-      alert(String(e));
+      void notify(String(e));
     } finally {
       setBusy(null);
     }
@@ -351,7 +353,7 @@ function TitleDetail({
                       <button
                         key={i}
                         className={i === 0 ? "primary" : ""}
-                        onClick={() => api.launchTitle(title.id, title.info_hash, i).catch((e) => alert(String(e)))}
+                        onClick={() => api.launchTitle(title.id, title.info_hash, i).catch((e) => void notify(String(e)))}
                       >
                         ▶ {l.name}
                       </button>
