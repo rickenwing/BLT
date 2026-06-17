@@ -123,6 +123,30 @@ impl Jukebox {
         Ok(())
     }
 
+    /// Remove every queue item that references a (now-deleted) shared-pool
+    /// entry, so deleting a share also clears it from the rotation instead of
+    /// leaving a dangling `shared_file` item that fails when it tries to play.
+    /// Returns the number removed. A `shared_file` item stores the share id in
+    /// `ref` as a string (mirrors how it's added/resolved). If the now-playing
+    /// item is one of them, `remove` resets playback to idle.
+    pub fn remove_share_refs(
+        &mut self,
+        conn: &Connection,
+        share_id: u64,
+    ) -> rusqlite::Result<usize> {
+        let key = share_id.to_string();
+        let ids: Vec<u64> = {
+            let mut stmt =
+                conn.prepare("SELECT id FROM jukebox_items WHERE type='shared_file' AND ref=?1")?;
+            let rows = stmt.query_map(params![key], |r| r.get::<_, i64>(0).map(|v| v as u64))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for id in &ids {
+            self.remove(conn, *id)?;
+        }
+        Ok(ids.len())
+    }
+
     pub fn clear(&mut self, conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("DELETE FROM jukebox_items", [])?;
         self.now_playing = None;
@@ -445,5 +469,80 @@ mod tests {
         assert!(!jb.toggle_vote(&conn, a, "c1").unwrap());
         let st = jb.state_for(&conn, "c1").unwrap();
         assert_eq!(st.up_next[0].votes, 0);
+    }
+
+    #[test]
+    fn deleting_share_clears_its_jukebox_refs() {
+        let conn = db::open_memory().unwrap();
+        let mut jb = Jukebox::new(OrderMode::Fair);
+        let mut now = now_seq();
+
+        // Two queue items reference share 42; a YouTube item and a shared-file
+        // item for a *different* share must survive the cascade.
+        let s1 = jb
+            .add(
+                &conn,
+                ItemType::SharedFile,
+                "42",
+                Some("clip.mp4"),
+                "Rick",
+                "c1",
+                now(),
+            )
+            .unwrap();
+        let _s2 = jb
+            .add(
+                &conn,
+                ItemType::SharedFile,
+                "42",
+                Some("clip.mp4"),
+                "Sam",
+                "c2",
+                now(),
+            )
+            .unwrap();
+        let yt = jb
+            .add(
+                &conn,
+                ItemType::Youtube,
+                "yt:keep",
+                Some("song"),
+                "Rick",
+                "c1",
+                now(),
+            )
+            .unwrap();
+        let other = jb
+            .add(
+                &conn,
+                ItemType::SharedFile,
+                "7",
+                Some("other.mp4"),
+                "Sam",
+                "c2",
+                now(),
+            )
+            .unwrap();
+
+        // Share 42's first item happens to be playing right now.
+        jb.now_playing = Some(s1);
+        jb.playback_state = PlaybackState::PlayingEmbedded;
+
+        let removed = jb.remove_share_refs(&conn, 42).unwrap();
+        assert_eq!(removed, 2, "both items pointing at share 42 are removed");
+
+        // The now-playing item was one of them → playback resets to idle.
+        assert!(jb.now_playing.is_none());
+        assert_eq!(jb.playback_state, PlaybackState::Idle);
+
+        // Unrelated items (other share + YouTube) remain queued.
+        let st = jb.state_for(&conn, "c1").unwrap();
+        let ids: Vec<u64> = st.up_next.iter().map(|i| i.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&yt));
+        assert!(ids.contains(&other));
+
+        // Deleting a share that nothing references is a no-op.
+        assert_eq!(jb.remove_share_refs(&conn, 999).unwrap(), 0);
     }
 }

@@ -386,7 +386,22 @@ pub async fn remove_share_data(state: &SharedState, id: u64, stored_path: &str) 
     } else if path.is_file() {
         let _ = tokio::fs::remove_file(&path).await;
     }
-    let conn = state.db.lock();
-    db::delete_share(&conn, id)?;
+    // Drop the DB row, then cascade-remove any jukebox queue items that pointed
+    // at this share so deleting a shared file also clears it from the rotation
+    // (otherwise a dangling `shared_file` item lingers and fails when it plays).
+    // Lock order matches the jukebox handlers (db → jukebox); both release
+    // before the broadcast, which takes the sessions lock.
+    let removed_from_queue = {
+        let conn = state.db.lock();
+        db::delete_share(&conn, id)?;
+        state.jukebox.lock().remove_share_refs(&conn, id)?
+    };
+    if removed_from_queue > 0 {
+        info!(
+            share_id = id,
+            removed_from_queue, "share delete cleared jukebox items"
+        );
+        state.broadcast_jukebox();
+    }
     Ok(())
 }
