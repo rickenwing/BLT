@@ -20,9 +20,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # action-gh-release@v2 still ships on Node 20; opt into the Node 24 runtime
-  # ahead of the June 16 2026 forced default.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   # Resilience against flaky crates.io fetches on the runners: retry transient
   # download failures, and disable HTTP/2 multiplexing (avoids the intermittent
   # "[16] Error in the HTTP2 framing layer" curl failure that killed a release).
@@ -42,12 +39,12 @@ jobs:
             args: ""
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: Install frontend deps
@@ -80,10 +77,10 @@ jobs:
             bin: blt-server.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
       - name: Build admin SPA (served by the server)
@@ -106,7 +103,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Attach to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: |
