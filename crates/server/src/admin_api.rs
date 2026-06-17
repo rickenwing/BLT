@@ -300,6 +300,7 @@ async fn status(State(state): State<SharedState>) -> Json<serde_json::Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "uptime_secs": state.started.elapsed().as_secs(),
         "connections": conns,
+        "serve_bps": state.serve_meter.lock().rate_bps(),
         "binds": {
             "game_distribution": cfg.game_distribution_bind,
             "shared_pool": cfg.shared_pool_bind,

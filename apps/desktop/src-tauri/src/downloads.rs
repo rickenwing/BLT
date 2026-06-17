@@ -42,6 +42,9 @@ pub struct QueueEntry {
     pub bytes_total: u64,
     pub bytes_done: u64,
     pub speed_bps: u64,
+    /// Bytes pulled from the server vs from peers (active downloads only).
+    pub from_server: u64,
+    pub from_peers: u64,
     pub error: Option<String>,
 }
 
@@ -64,6 +67,9 @@ struct Active {
     have: AtomicU64,
     total: AtomicU64,
     speed_bps: AtomicU64,
+    /// Bytes accepted from the server vs from peers (source attribution).
+    from_server: AtomicU64,
+    from_peers: AtomicU64,
 }
 
 pub struct DownloadManager {
@@ -227,6 +233,8 @@ impl DownloadManager {
                 bytes_total: a.bytes_total.load(Ordering::SeqCst),
                 bytes_done: a.bytes_done.load(Ordering::SeqCst),
                 speed_bps: a.speed_bps.load(Ordering::SeqCst),
+                from_server: a.from_server.load(Ordering::SeqCst),
+                from_peers: a.from_peers.load(Ordering::SeqCst),
                 error: None,
             });
         }
@@ -242,6 +250,8 @@ impl DownloadManager {
                 bytes_total: 0,
                 bytes_done: 0,
                 speed_bps: 0,
+                from_server: 0,
+                from_peers: 0,
                 error: None,
             });
         }
@@ -264,6 +274,8 @@ impl DownloadManager {
                         bytes_total: 0,
                         bytes_done: 0,
                         speed_bps: 0,
+                        from_server: 0,
+                        from_peers: 0,
                         error: r.error,
                     });
                 }
@@ -726,7 +738,10 @@ fn account_write(
             active.have.fetch_add(1, Ordering::SeqCst);
             active.bytes_done.fetch_add(out.size, Ordering::SeqCst);
             *window_bytes += out.size;
-            if out.source != SERVER_SOURCE_ID {
+            if out.source == SERVER_SOURCE_ID {
+                active.from_server.fetch_add(out.size, Ordering::SeqCst);
+            } else {
+                active.from_peers.fetch_add(out.size, Ordering::SeqCst);
                 state
                     .downloads
                     .record_rate(&out.source, out.size, out.fetch_elapsed);
@@ -766,7 +781,7 @@ fn report_activity(state: &Shared, activity: &str) {
     let server_only = state.live.read().p2p_reachable == Some(false);
     state.send_ws(blt_core::protocol::ClientMsg::Activity {
         activity: activity.to_string(),
-        throughput_bps: state.downloads.rate_of("@self-seed").map(|r| r as u64),
+        throughput_bps: Some(state.seed_meter.lock().rate_bps()).filter(|&r| r > 0),
         server_only,
     });
 }

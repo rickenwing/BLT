@@ -154,6 +154,8 @@ pub struct ClientState {
     pub xfer_seq: AtomicU64,
     /// Embedded mpv player state (jukebox local/LAN media playback).
     pub mpv: Mutex<crate::mpv::MpvPlayer>,
+    /// Smoothed seed (upload) throughput — chunks served to peers (People column).
+    pub seed_meter: Mutex<blt_core::ratemeter::RateMeter>,
 }
 
 pub type Shared = Arc<ClientState>;

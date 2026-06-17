@@ -59,6 +59,7 @@ export interface Status {
   version: string;
   uptime_secs: number;
   connections: number;
+  serve_bps: number;
   binds: { game_distribution: string; shared_pool: string; admin_panel: string };
   paths: { library: string | null; staging: string | null; share: string | null };
 }

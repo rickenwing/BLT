@@ -72,6 +72,7 @@ pub fn run() {
         xfers: parking_lot::Mutex::new(std::collections::HashMap::new()),
         xfer_seq: std::sync::atomic::AtomicU64::new(1),
         mpv: parking_lot::Mutex::new(mpv::MpvPlayer::default()),
+        seed_meter: parking_lot::Mutex::new(blt_core::ratemeter::RateMeter::new()),
     });
 
     // Reconnect to the last server automatically (F3.4).

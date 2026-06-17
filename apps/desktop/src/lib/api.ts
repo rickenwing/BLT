@@ -96,6 +96,8 @@ export interface QueueEntry {
   bytes_total: number;
   bytes_done: number;
   speed_bps: number;
+  from_server: number;
+  from_peers: number;
   error: string | null;
 }
 

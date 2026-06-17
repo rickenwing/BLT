@@ -27,6 +27,7 @@ pub mod manifest;
 pub mod p2p;
 pub mod pathsafe;
 pub mod protocol;
+pub mod ratemeter;
 pub mod transfer;
 
 /// Shared app plumbing (data-root + logging); enabled by both binaries.

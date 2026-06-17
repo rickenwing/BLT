@@ -161,7 +161,10 @@ async fn serve_chunk(
         })
         .await;
         return match read {
-            Ok(Ok(bytes)) => (StatusCode::OK, bytes).into_response(),
+            Ok(Ok(bytes)) => {
+                seed.app.seed_meter.lock().add(bytes.len() as u64);
+                (StatusCode::OK, bytes).into_response()
+            }
             _ => (StatusCode::NOT_FOUND, "unreadable").into_response(),
         };
     }

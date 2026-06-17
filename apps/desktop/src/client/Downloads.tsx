@@ -50,6 +50,12 @@ export default function Downloads() {
             {formatBytes(q.bytes_done)} / {formatBytes(q.bytes_total)} ·{" "}
             {q.have_chunks}/{q.total_chunks} chunks
           </div>
+          {q.bytes_done > 0 && (
+            <div className="dim" style={{ fontSize: 11 }}>
+              from server {formatBytes(q.from_server)} · peers{" "}
+              {formatBytes(q.from_peers)}
+            </div>
+          )}
         </div>
       ))}
 

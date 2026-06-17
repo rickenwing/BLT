@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, formatUptime, Status } from "../api";
+import { api, formatBytes, formatUptime, Status } from "../api";
 
 interface UpdateInfo {
   current: string;
@@ -127,6 +127,10 @@ export default function Dashboard() {
         <div className="card">
           <div className="label">Connected clients</div>
           <div className="value">{status.connections}</div>
+        </div>
+        <div className="card">
+          <div className="label">Serving (game chunks)</div>
+          <div className="value">{formatBytes(status.serve_bps)}/s</div>
         </div>
       </div>
 

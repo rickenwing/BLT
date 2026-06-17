@@ -225,6 +225,7 @@ async fn serve_chunk(
     let path = blt_core::transfer::safe_join(&library.join(&title_folder), &rel_path)
         .map_err(|e| ApiError::Internal(format!("bad stored path: {e}")))?;
     let body = read_span(&path, offset, size).await?;
+    state.serve_meter.lock().add(body.len() as u64);
     Ok((
         [
             (header::CONTENT_TYPE, "application/octet-stream".to_string()),

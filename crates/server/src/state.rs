@@ -56,6 +56,8 @@ pub struct AppState {
     /// Set by the supervisor; lets the admin API request a listener rebind.
     pub rebind: OnceLock<tokio::sync::mpsc::UnboundedSender<ServiceKind>>,
     pub started: Instant,
+    /// Smoothed outbound serve rate — game chunks sent to clients (admin panel).
+    pub serve_meter: Mutex<blt_core::ratemeter::RateMeter>,
 }
 
 /// One admin session's lifecycle timestamps (SEC-5).
@@ -100,6 +102,7 @@ impl AppState {
             login_throttle: Mutex::new(HashMap::new()),
             rebind: OnceLock::new(),
             started: Instant::now(),
+            serve_meter: Mutex::new(blt_core::ratemeter::RateMeter::new()),
         })
     }
 
