@@ -53,3 +53,10 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Dev builds keep file/line info for usable backtraces but drop the heavy
+# per-variable/type DWARF that bloated target/debug to ~20 GB of debug info
+# across the (large) Tauri dependency tree. Backtraces still resolve; stepping
+# through dependency internals is rarely needed. Release builds are unaffected.
+[profile.dev]
+debug = "line-tables-only"
