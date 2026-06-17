@@ -230,6 +230,29 @@ impl Jukebox {
         Ok(order)
     }
 
+    /// The (last) playback machine disconnected while something was playing:
+    /// nothing is actually rendering anymore, so clear the phantom now-playing
+    /// (HARD CONSTRAINT #12 — never present stale state as current) and requeue
+    /// that item at the **top** of up-next so it resumes when playback returns.
+    /// Returns whether anything changed (false if nothing was playing).
+    pub fn requeue_now_playing(&mut self, conn: &Connection) -> rusqlite::Result<bool> {
+        let Some(cur) = self.now_playing.take() else {
+            return Ok(false);
+        };
+        // Back to 'queued', pinned to the head (mirrors `move_to_top`).
+        let min: Option<i64> = conn.query_row(
+            "SELECT MIN(sort_override) FROM jukebox_items WHERE state='queued'",
+            [],
+            |r| r.get(0),
+        )?;
+        conn.execute(
+            "UPDATE jukebox_items SET state='queued', sort_override=?2 WHERE id=?1",
+            params![cur as i64, min.unwrap_or(0) - 1],
+        )?;
+        self.playback_state = PlaybackState::Idle;
+        Ok(true)
+    }
+
     /// Admin reorder (F11.1): move an item to the head of up-next.
     pub fn move_to_top(&self, conn: &Connection, item_id: u64) -> rusqlite::Result<()> {
         let min: Option<i64> = conn.query_row(
@@ -544,5 +567,60 @@ mod tests {
 
         // Deleting a share that nothing references is a no-op.
         assert_eq!(jb.remove_share_refs(&conn, 999).unwrap(), 0);
+    }
+
+    #[test]
+    fn playback_disconnect_requeues_now_playing_on_top() {
+        let conn = db::open_memory().unwrap();
+        let mut jb = Jukebox::new(OrderMode::Fair);
+        let mut now = now_seq();
+
+        let a = jb
+            .add(
+                &conn,
+                ItemType::Youtube,
+                "yt:a",
+                Some("A"),
+                "Rick",
+                "c1",
+                now(),
+            )
+            .unwrap();
+        let b = jb
+            .add(
+                &conn,
+                ItemType::Youtube,
+                "yt:b",
+                Some("B"),
+                "Sam",
+                "c2",
+                now(),
+            )
+            .unwrap();
+
+        // Start playing → one item is now-playing, the other queued.
+        jb.advance(&conn).unwrap();
+        let playing = jb.now_playing.unwrap();
+        assert_eq!(jb.playback_state, PlaybackState::PlayingEmbedded);
+
+        // Playback machine quits mid-play.
+        assert!(jb.requeue_now_playing(&conn).unwrap());
+        assert!(jb.now_playing.is_none());
+        assert_eq!(jb.playback_state, PlaybackState::Idle);
+
+        // No phantom now-playing; the interrupted item is back, pinned on top.
+        let st = jb.state_for(&conn, "c1").unwrap();
+        assert!(st.now_playing.is_none());
+        assert_eq!(
+            st.up_next.first().unwrap().id,
+            playing,
+            "interrupted item resumes from the top"
+        );
+        let ids: Vec<u64> = st.up_next.iter().map(|i| i.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&a) && ids.contains(&b));
+
+        // Idle with nothing playing → no-op.
+        assert!(!jb.requeue_now_playing(&conn).unwrap());
     }
 }

@@ -350,8 +350,41 @@ async fn ws_session(state: SharedState, socket: WebSocket, remote: SocketAddr) {
     }
 
     // Disconnect: drop registry entry + tell everyone (F15.3 roster removal).
-    state.sessions.lock().remove(conn_id);
+    // Snapshot whether this was the *last* playback machine before removing, so
+    // we can reset the jukebox if it leaves mid-playback (below).
+    let last_playback_gone = {
+        let mut sessions = state.sessions.lock();
+        let was_playback = sessions
+            .conn_info(conn_id)
+            .map(|(_, _, mode)| mode == blt_core::protocol::Mode::Playback)
+            .unwrap_or(false);
+        sessions.remove(conn_id);
+        was_playback && sessions.playback_count() == 0
+    };
     state.broadcast_roster();
+
+    // The playback machine just dropped while something was playing → nothing is
+    // actually rendering. Clear the phantom now-playing and requeue it on top so
+    // the jukebox doesn't show a stale "now playing" (#12) and resumes cleanly
+    // when a playback machine returns.
+    if last_playback_gone {
+        let changed = {
+            let conn = state.db.lock();
+            let mut jb = state.jukebox.lock();
+            match jb.requeue_now_playing(&conn) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("requeue on playback disconnect: {e}");
+                    false
+                }
+            }
+        };
+        if changed {
+            info!("playback machine gone mid-play — now-playing requeued to top, jukebox idle");
+            state.broadcast_jukebox();
+        }
+    }
+
     writer.abort();
     debug!(%remote, "ws session closed");
 }

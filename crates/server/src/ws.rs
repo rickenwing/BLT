@@ -53,6 +53,17 @@ impl SessionRegistry {
         id
     }
 
+    /// Number of currently-connected playback-mode sessions. Used on disconnect
+    /// to tell whether *any* playback machine remains before resetting the
+    /// jukebox (two mirrored playback machines: one dropping must not stop the
+    /// other).
+    pub fn playback_count(&self) -> usize {
+        self.conns
+            .values()
+            .filter(|c| c.mode == Mode::Playback)
+            .count()
+    }
+
     /// Remove a connection and any peer advertisements it held.
     pub fn remove(&mut self, conn_id: u64) {
         if let Some(c) = self.conns.remove(&conn_id) {
