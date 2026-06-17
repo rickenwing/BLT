@@ -157,6 +157,12 @@ impl DownloadManager {
                     }
                 }
                 *state.downloads.active.write() = None;
+                // A job can end by completing, pausing, cancelling, or erroring;
+                // the cancel and error paths don't reset the roster activity
+                // themselves, so clear it here — otherwise People keeps showing
+                // "downloading X" for a transfer that's actually stopped. The
+                // next queued job (if any) re-sets "downloading …" immediately.
+                report_activity(&state, "idle");
                 let _ = app.emit("downloads-changed", ());
             }
             state.downloads.running.store(false, Ordering::SeqCst);
