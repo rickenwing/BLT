@@ -600,6 +600,16 @@ pub fn share_stored_path(
     .optional()
 }
 
+/// All current share `stored_path`s — the orphan sweep keeps only these under
+/// the share root.
+pub fn all_stored_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT stored_path FROM shares")?;
+    let rows = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 pub fn share_files(conn: &Connection, id: u64) -> rusqlite::Result<Vec<(String, u64)>> {
     let mut stmt =
         conn.prepare("SELECT rel_path,size FROM share_files WHERE share_id=?1 ORDER BY rel_path")?;

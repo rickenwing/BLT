@@ -190,7 +190,9 @@ async fn serve_file(
         None => (0, size, StatusCode::OK),
     };
 
-    let mut f = tokio::fs::File::open(&path).await?;
+    // Delete-race: open allowing concurrent delete so removing the title mid-
+    // stream doesn't leave the file pinned on Windows (crate::util::open_read_shared).
+    let mut f = tokio::fs::File::from_std(crate::util::open_read_shared(&path)?);
     f.seek(SeekFrom::Start(start)).await?;
     let stream = tokio_util::io::ReaderStream::with_capacity(f.take(len), 256 * 1024);
     let body = axum::body::Body::from_stream(stream);

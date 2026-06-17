@@ -316,7 +316,9 @@ async fn serve_range(path: &Path, size: u64, headers: &HeaderMap) -> ApiResult<R
         None => (0, size, StatusCode::OK),
     };
 
-    let mut f = tokio::fs::File::open(path).await?;
+    // Delete-race: open allowing concurrent delete so a share deleted mid-stream
+    // isn't left orphaned on Windows (crate::util::open_read_shared).
+    let mut f = tokio::fs::File::from_std(crate::util::open_read_shared(path)?);
     f.seek(SeekFrom::Start(start)).await?;
     // Stream in bounded pieces (shared video files can be GBs).
     let reader = f.take(len);
