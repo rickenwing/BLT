@@ -582,18 +582,31 @@ fn handle_client_msg(
                 Err(e) => warn!("jukebox vote: {e}"),
             }
         }
+        ClientMsg::PlaybackAuth { password } => {
+            // Prove this is an authorised playback machine (F1). Throttled like
+            // /api/login + /admin/verify so it can't be brute-forced (SEC-2).
+            let ip = remote.ip();
+            if state.login_locked(ip) {
+                warn!(%client_id, "playback auth throttled");
+                return;
+            }
+            if state.check_admin_password(&password) {
+                state.login_ok(ip);
+                state.sessions.lock().mark_playback_verified(conn_id);
+                info!(%client_id, "playback machine authenticated (Next/Ended enabled)");
+            } else {
+                state.login_fail(ip);
+                warn!(%client_id, %remote, "playback auth: wrong admin password");
+            }
+        }
         ClientMsg::JukeboxNext | ClientMsg::JukeboxEnded => {
-            // Next/ended only from the playback machine (clients have no Next,
-            // F8.7/F10.4; the admin panel uses its REST route).
-            let is_playback = {
-                let sessions = state.sessions.lock();
-                sessions
-                    .conn_info(conn_id)
-                    .map(|(_, _, mode)| mode == blt_core::protocol::Mode::Playback)
-                    .unwrap_or(false)
-            };
-            if !is_playback {
-                warn!(%client_id, "ignoring Next/Ended from non-playback session");
+            // Next/Ended only from a *password-verified* playback machine (F1):
+            // self-declaring Playback mode is not enough, so a client can't grief
+            // the queue. Clients have no Next (F8.7/F10.4); the admin panel uses
+            // its own REST route.
+            let verified = state.sessions.lock().is_playback_verified(conn_id);
+            if !verified {
+                warn!(%client_id, "ignoring Next/Ended from unverified session");
                 return;
             }
             let res = {

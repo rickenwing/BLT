@@ -275,8 +275,13 @@ pub enum ClientMsg {
     },
     /// Toggle this client's upvote on an item (F8.4; keyed on client_id).
     JukeboxVote { item_id: u64 },
-    /// Human-driven Next — accepted only from playback-mode sessions; the
-    /// admin panel drives Next via its own REST route (F10.4).
+    /// Prove this connection is an authorised playback machine via the admin
+    /// password (F1 hardening). Until verified, `JukeboxNext`/`JukeboxEnded` are
+    /// ignored, so a client can't grief the queue by self-declaring Playback
+    /// mode. The server checks it against the admin hash (throttled).
+    PlaybackAuth { password: String },
+    /// Human-driven Next — accepted only from a **password-verified** playback
+    /// session; the admin panel drives Next via its own REST route (F10.4).
     JukeboxNext,
     /// An embedded item finished on the playback machine → auto-advance (F9.3).
     JukeboxEnded,

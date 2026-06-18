@@ -74,6 +74,7 @@ pub fn run() {
         mpv: parking_lot::Mutex::new(mpv::MpvPlayer::default()),
         seed_meter: parking_lot::Mutex::new(blt_core::ratemeter::RateMeter::new()),
         last_activity: parking_lot::RwLock::new("idle".to_string()),
+        playback_password: parking_lot::RwLock::new(None),
     });
 
     // Reconnect to the last server automatically (F3.4).
@@ -133,6 +134,8 @@ pub fn run() {
             commands::jukebox_vote,
             commands::jukebox_next,
             commands::jukebox_ended,
+            commands::playback_authenticate,
+            commands::playback_authed,
             commands::roster,
             commands::resolve_share_stream,
             commands::lockdown_enter,

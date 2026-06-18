@@ -799,6 +799,13 @@ where
 #[tokio::test]
 async fn jukebox_ws_add_vote_and_external_lane() {
     let srv = boot().await;
+    // Set an admin password so the playback machine can authenticate (F1).
+    reqwest::Client::new()
+        .post(format!("http://{}/api/setup", srv.admin))
+        .json(&serde_json::json!({ "password": "jukebox-admin-pass" }))
+        .send()
+        .await
+        .expect("setup admin password");
 
     // A player client and the playback machine connect.
     let (mut player_tx, mut player_rx) =
@@ -808,6 +815,16 @@ async fn jukebox_ws_add_vote_and_external_lane() {
     let (mut playback_tx, mut playback_rx) =
         ws_connect(srv.game, "playback-1", "TV", Mode::Playback).await;
     let _ = next_matching(&mut playback_rx, |m| matches!(m, ServerMsg::Welcome { .. })).await;
+    // F1: prove the admin password before Next/Ended will be honored. Same
+    // connection, so the server processes this before any later Next.
+    let auth = serde_json::to_string(&ClientMsg::PlaybackAuth {
+        password: "jukebox-admin-pass".into(),
+    })
+    .expect("ser");
+    playback_tx
+        .send(tokio_tungstenite::tungstenite::Message::Text(auth))
+        .await
+        .expect("send");
 
     // Player adds a YouTube item and an external (Netflix) item (F8.1).
     for (ty, reference) in [

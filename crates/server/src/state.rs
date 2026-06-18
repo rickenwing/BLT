@@ -183,6 +183,23 @@ impl AppState {
         self.login_throttle.lock().remove(&ip);
     }
 
+    /// Verify a password against the stored admin argon2 hash. Returns `false`
+    /// if no password is set yet or it doesn't match. Callers on the no-auth
+    /// data/share listeners must throttle by IP themselves (SEC-2). Shared by
+    /// the lockdown gate, the WS `PlaybackAuth` check, and share deletion.
+    pub fn check_admin_password(&self, password: &str) -> bool {
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
+        let Some(stored) = self.config.read().admin_password_hash.clone() else {
+            return false;
+        };
+        let Ok(parsed) = PasswordHash::new(&stored) else {
+            return false;
+        };
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok()
+    }
+
     /// (Re)load all published manifests from the DB into the serving cache.
     /// A title with corrupt rows is skipped (and loudly logged) rather than
     /// taking every other title offline with it.

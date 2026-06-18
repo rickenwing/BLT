@@ -110,6 +110,9 @@ td { padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border
 
 /* playback mode */
 .playback { min-height: 100vh; display: flex; flex-direction: column; background: #05070a; }
+.playback .auth-banner { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #2a1f00; color: #ffd479; border-bottom: 1px solid #5a4400; font-size: 14px; }
+.playback .auth-banner span { flex: 1; }
+.playback .auth-banner input { width: 220px; }
 .playback .stage { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
 .playback .stage iframe, .playback .stage video { width: 100%; height: 100%; border: 0; position: absolute; inset: 0; }
 .playback .bar { display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--bg-panel); border-top: 1px solid var(--border); }

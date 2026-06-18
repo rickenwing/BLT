@@ -998,6 +998,23 @@ pub fn jukebox_ended(state: State<'_, Shared>) -> Cmd<()> {
     Ok(())
 }
 
+/// Authenticate this playback machine so the server honors its Next/Ended (F1).
+/// Verifies the admin password, caches it **in memory only**, and sends
+/// `PlaybackAuth` (re-sent automatically on every reconnect, see ws.rs).
+#[tauri::command]
+pub async fn playback_authenticate(state: State<'_, Shared>, password: String) -> Cmd<()> {
+    verify_admin(&state, &password).await?;
+    *state.playback_password.write() = Some(password.clone());
+    state.send_ws(ClientMsg::PlaybackAuth { password });
+    Ok(())
+}
+
+/// Whether this machine has already authenticated for playback control (F1).
+#[tauri::command]
+pub fn playback_authed(state: State<'_, Shared>) -> bool {
+    state.playback_password.read().is_some()
+}
+
 #[tauri::command]
 pub fn roster(state: State<'_, Shared>) -> Vec<blt_core::protocol::RosterEntry> {
     state.live.read().roster.clone()

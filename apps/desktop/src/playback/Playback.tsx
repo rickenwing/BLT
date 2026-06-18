@@ -29,11 +29,29 @@ export default function Playback({ boot }: { boot: AppBootState }) {
   const [state, setState] = useState<JukeboxState | null>(null);
   const [unlockPw, setUnlockPw] = useState("");
   const [showUnlock, setShowUnlock] = useState(false);
+  const [authed, setAuthed] = useState(false);
+  const [authPw, setAuthPw] = useState("");
   const launchedFor = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     setState(await api.jukeboxState());
   }, []);
+
+  // F1: this machine must prove the admin password before the server honors its
+  // Next/auto-advance. Check once on mount (a prior auth this session persists).
+  useEffect(() => {
+    void api.playbackAuthed().then(setAuthed);
+  }, []);
+
+  async function authenticate() {
+    try {
+      await api.playbackAuthenticate(authPw);
+      setAuthed(true);
+      setAuthPw("");
+    } catch (e) {
+      void notify(String(e));
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -80,6 +98,24 @@ export default function Playback({ boot }: { boot: AppBootState }) {
 
   return (
     <div className="playback">
+      {!authed && (
+        <div className="auth-banner">
+          <span>
+            🔒 Enter the <strong>admin password</strong> to control the jukebox
+            (Next &amp; auto-advance) from this machine.
+          </span>
+          <input
+            type="password"
+            placeholder="Admin password"
+            value={authPw}
+            onChange={(e) => setAuthPw(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void authenticate()}
+          />
+          <button className="primary" onClick={() => void authenticate()}>
+            Enable controls
+          </button>
+        </div>
+      )}
       <div className="stage">
         {!np && (
           <div className="external-card dim">
@@ -126,7 +162,12 @@ export default function Playback({ boot }: { boot: AppBootState }) {
             </div>
           )}
         </div>
-        <button className="primary" onClick={next}>
+        <button
+          className="primary"
+          onClick={next}
+          disabled={!authed}
+          title={authed ? "Skip to next" : "Authenticate to control the jukebox"}
+        >
           ⏭ Next
         </button>
         <button onClick={toggleFullscreen}>⛶</button>

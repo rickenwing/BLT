@@ -159,6 +159,10 @@ pub struct ClientState {
     /// Last reported roster activity, re-sent periodically so an idle-but-seeding
     /// client keeps its seed speed fresh in the roster.
     pub last_activity: RwLock<String>,
+    /// Admin password cached **in memory only** after a successful playback
+    /// authentication (F1), so `PlaybackAuth` can be re-sent on every WS
+    /// (re)connect to keep Next/Ended authorised. Never persisted (HC #16).
+    pub playback_password: RwLock<Option<String>>,
 }
 
 pub type Shared = Arc<ClientState>;

@@ -19,6 +19,9 @@ pub struct Conn {
     pub activity: String,
     pub server_only: bool,
     pub throughput_bps: Option<u64>,
+    /// Proved the admin password via `PlaybackAuth`; required for Next/Ended
+    /// (F1). Reset on every Hello so a re-identified session must re-auth.
+    pub playback_verified: bool,
     pub tx: UnboundedSender<ServerMsg>,
 }
 
@@ -47,6 +50,7 @@ impl SessionRegistry {
                 activity: "idle".into(),
                 server_only: false,
                 throughput_bps: None,
+                playback_verified: false,
                 tx,
             },
         );
@@ -91,7 +95,24 @@ impl SessionRegistry {
             c.display_name = display_name;
             c.machine_name = machine_name;
             c.mode = mode;
+            // Re-identification drops any prior playback authorisation (F1).
+            c.playback_verified = false;
         }
+    }
+
+    /// Flag a connection as a password-verified playback machine (F1).
+    pub fn mark_playback_verified(&mut self, conn_id: u64) {
+        if let Some(c) = self.conns.get_mut(&conn_id) {
+            c.playback_verified = true;
+        }
+    }
+
+    /// Whether this connection has proved the admin password (gates Next/Ended).
+    pub fn is_playback_verified(&self, conn_id: u64) -> bool {
+        self.conns
+            .get(&conn_id)
+            .map(|c| c.playback_verified)
+            .unwrap_or(false)
     }
 
     /// Whether `client_id` is currently flagged server-only (any connection).

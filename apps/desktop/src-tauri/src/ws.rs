@@ -76,6 +76,13 @@ async fn run_once(state: &Shared, app: &tauri::AppHandle, game: &str) -> anyhow:
         machine_name: machine,
         mode,
     });
+    // F1: re-prove playback authority on every (re)connect if this machine has
+    // authenticated (Hello resets the server-side flag, so this must follow it).
+    if mode == blt_core::protocol::Mode::Playback {
+        if let Some(password) = state.playback_password.read().clone() {
+            let _ = tx.send(ClientMsg::PlaybackAuth { password });
+        }
+    }
     let _ = tx.send(ClientMsg::Resync);
     // Re-announce seeded titles after a reconnect.
     announce_seeds(state, &tx);
