@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "blt"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "blt-core"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "hex",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "blt-server"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
