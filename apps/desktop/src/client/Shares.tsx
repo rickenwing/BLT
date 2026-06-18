@@ -10,6 +10,8 @@ export default function Shares() {
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<Record<number, ShareDownloadOut>>({});
   const [myClientId, setMyClientId] = useState("");
+  const [delTarget, setDelTarget] = useState<ShareSummary | null>(null);
+  const [delPw, setDelPw] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -92,10 +94,17 @@ export default function Shares() {
     }
   }
 
-  async function remove(s: ShareSummary) {
-    if (!await confirmDialog(`Delete your share "${s.name}"? This removes it for everyone.`)) return;
+  // Deleting a share now requires the admin password (F2) — open a prompt.
+  function remove(s: ShareSummary) {
+    setDelPw("");
+    setDelTarget(s);
+  }
+  async function confirmDelete() {
+    if (!delTarget) return;
     try {
-      await api.shareDelete(s.id);
+      await api.shareDelete(delTarget.id, delPw);
+      setDelTarget(null);
+      setDelPw("");
       await load();
     } catch (e) {
       void notify(e instanceof Error ? e.message : String(e));
@@ -184,10 +193,33 @@ export default function Shares() {
         )}
       </div>
       <p className="dim">
-        Shares are stored on the server and survive between parties. Deleting is
-        limited to whoever uploaded a share (the admin can moderate from the
-        panel).
+        Shares are stored on the server and survive between parties. Deleting a
+        share requires the <strong>admin password</strong> (the uploader id was
+        spoofable, so it's no longer a permission boundary).
       </p>
+      {delTarget && (
+        <div className="modal-backdrop" onClick={() => setDelTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete “{delTarget.name}”?</h3>
+            <p className="dim">
+              This removes it for everyone. The admin password is required.
+            </p>
+            <div className="row">
+              <input
+                type="password"
+                placeholder="Admin password"
+                value={delPw}
+                onChange={(e) => setDelPw(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void confirmDelete()}
+                autoFocus
+              />
+              <button className="danger" onClick={() => void confirmDelete()}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

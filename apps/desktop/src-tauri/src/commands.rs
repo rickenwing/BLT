@@ -933,7 +933,7 @@ pub async fn share_download(
 }
 
 #[tauri::command]
-pub async fn share_delete(state: State<'_, Shared>, share_id: u64) -> Cmd<()> {
+pub async fn share_delete(state: State<'_, Shared>, share_id: u64, password: String) -> Cmd<()> {
     let share = state
         .connection
         .read()
@@ -941,8 +941,8 @@ pub async fn share_delete(state: State<'_, Shared>, share_id: u64) -> Cmd<()> {
         .clone()
         .filter(|s| !s.is_empty())
         .ok_or("share service not available")?;
-    let client_id = state.settings.read().client_id.clone();
-    server_api::delete_share(&share, &client_id, share_id)
+    // F2: deletion requires the admin password (uploader id is spoofable).
+    server_api::delete_share(&share, &password, share_id)
         .await
         .map_err(err)
 }

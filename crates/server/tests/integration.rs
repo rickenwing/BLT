@@ -552,19 +552,27 @@ async fn share_upload_browse_download_delete_rules() {
     assert_eq!(resp.status().as_u16(), 206);
     assert_eq!(resp.bytes().await.expect("bytes").len(), 100);
 
-    // Delete by a non-owner is forbidden (F6.9).
+    // F2: deletion requires the admin password (the client_id "owner" header was
+    // spoofable). Set a password, then test wrong vs right.
+    http.post(format!("http://{}/api/setup", srv.admin))
+        .json(&serde_json::json!({ "password": "share-admin-pass" }))
+        .send()
+        .await
+        .expect("setup admin password");
+
+    // No / wrong admin password is forbidden.
     let resp = http
         .delete(format!("{base}/shares/{share_id}"))
-        .header("x-blt-client-id", "client-B")
+        .header("x-blt-admin-password", "wrong")
         .send()
         .await
         .expect("del");
     assert_eq!(resp.status().as_u16(), 403);
 
-    // Delete by the owner works.
+    // The correct admin password works.
     let resp = http
         .delete(format!("{base}/shares/{share_id}"))
-        .header("x-blt-client-id", "client-A")
+        .header("x-blt-admin-password", "share-admin-pass")
         .send()
         .await
         .expect("del");

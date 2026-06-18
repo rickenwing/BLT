@@ -243,10 +243,11 @@ pub async fn upload_share(
     Ok(r.json().await?)
 }
 
-pub async fn delete_share(share: &str, client_id: &str, id: u64) -> Result<(), ApiError> {
+pub async fn delete_share(share: &str, admin_password: &str, id: u64) -> Result<(), ApiError> {
+    // F2: deletion is gated by the admin password, not the spoofable client id.
     let r = http()
         .delete(format!("http://{share}/shares/{id}"))
-        .header("x-blt-client-id", client_id)
+        .header("x-blt-admin-password", admin_password)
         .send()
         .await?;
     check(r.status())?;

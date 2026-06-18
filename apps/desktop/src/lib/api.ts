@@ -253,7 +253,8 @@ export const api = {
   shareUpload: (paths: string[]) => invoke<number>("share_upload", { paths }),
   shareDownload: (shareId: number, destDir: string, onlyMissing: boolean) =>
     invoke<ShareDownloadOut>("share_download", { shareId, destDir, onlyMissing }),
-  shareDelete: (shareId: number) => invoke<void>("share_delete", { shareId }),
+  shareDelete: (shareId: number, password: string) =>
+    invoke<void>("share_delete", { shareId, password }),
   preflightDest: (dest: string, needed: number) =>
     invoke<[boolean, number | null]>("preflight_dest", { dest, needed }),
 

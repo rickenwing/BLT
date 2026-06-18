@@ -12,7 +12,7 @@ use crate::db;
 use crate::error::{ApiError, ApiResult};
 use crate::state::SharedState;
 use crate::util::now_unix;
-use axum::extract::{Multipart, Path as AxPath, State};
+use axum::extract::{ConnectInfo, Multipart, Path as AxPath, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -21,12 +21,17 @@ use blt_core::pathsafe::{resolve_collision, sanitize_rel_path};
 use blt_core::protocol::{ShareKind, ShareListing, ShareSummary};
 use std::collections::HashSet;
 use std::io::SeekFrom;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tracing::{info, warn};
 
 /// Header carrying the uploader's client id (advisory identity; trusted LAN).
 pub const CLIENT_ID_HEADER: &str = "x-blt-client-id";
+/// Admin password carried on a share delete (F2). The old client_id "owner"
+/// check was spoofable — ids are broadcast in the roster — so deletion now
+/// requires the admin password.
+pub const ADMIN_PW_HEADER: &str = "x-blt-admin-password";
 
 pub fn router(state: SharedState) -> Router {
     Router::new()
@@ -345,29 +350,39 @@ async fn serve_range(path: &Path, size: u64, headers: &HeaderMap) -> ApiResult<R
 async fn delete_share(
     State(state): State<SharedState>,
     AxPath(id): AxPath<u64>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> ApiResult<StatusCode> {
-    let caller = headers
-        .get(CLIENT_ID_HEADER)
+    // F2: share deletion requires the admin password. The previous uploader
+    // "owner" check trusted the self-asserted x-blt-client-id header, and ids
+    // are broadcast in the roster, so any client could delete another's share.
+    // Throttle wrong passwords by IP, like /api/login + /admin/verify (SEC-2).
+    let ip = addr.ip();
+    if state.login_locked(ip) {
+        return Err(ApiError::TooManyRequests(
+            "too many failed attempts; wait a minute".into(),
+        ));
+    }
+    let password = headers
+        .get(ADMIN_PW_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    if !state.check_admin_password(password) {
+        state.login_fail(ip);
+        return Err(ApiError::Forbidden(
+            "the admin password is required to delete a share".into(),
+        ));
+    }
+    state.login_ok(ip);
     let stored = {
         let conn = state.db.lock();
         db::share_stored_path(&conn, id)?
     };
-    let Some((stored_path, owner)) = stored else {
+    let Some((stored_path, _owner)) = stored else {
         return Err(ApiError::NotFound);
     };
-    match owner.as_deref() {
-        Some(o) if o == caller && !caller.is_empty() => {}
-        _ => {
-            return Err(ApiError::Forbidden(
-                "only the uploader (or the admin, via the admin panel) can delete".into(),
-            ));
-        }
-    }
     remove_share_data(&state, id, &stored_path).await?;
-    info!(share_id = id, by = %caller, "share deleted by uploader");
+    info!(share_id = id, %addr, "share deleted (admin password)");
     Ok(StatusCode::NO_CONTENT)
 }
 
