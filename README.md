@@ -24,7 +24,11 @@ LAN-party stack:
 - **The Buttz LAN Tool desktop app** is a Tauri app that runs as a **client**
   (players) or as a **playback machine** (the box wired to the TV).
 
-Everything runs on your LAN. There is no cloud, no account, and no telemetry.
+The core runs entirely on your LAN, with no BLT cloud, no account, and no
+telemetry. The only outbound connections are optional and explicit: the manual
+update check against GitHub Releases (you choose when to download), and YouTube
+or streaming-service playback when someone queues it in the jukebox. With those
+two features unused, BLT works fully offline.
 
 ## Features
 
