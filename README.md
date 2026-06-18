@@ -25,10 +25,13 @@ LAN-party stack:
   (players) or as a **playback machine** (the box wired to the TV).
 
 The core runs entirely on your LAN, with no BLT cloud, no account, and no
-telemetry. The only outbound connections are optional and explicit: the manual
-update check against GitHub Releases (you choose when to download), and YouTube
-or streaming-service playback when someone queues it in the jukebox. With those
-two features unused, BLT works fully offline.
+telemetry. There are two outbound connections to be aware of. First, an
+automatic version check against GitHub Releases: the desktop app checks on
+launch and the server checks when its admin panel is open. That check is only an
+indicator, so downloading and installing an update is always a manual choice and
+nothing self-installs. Second, YouTube or streaming-service playback when
+someone queues it in the jukebox. Block internet at the router and everything
+except those update checks and streaming playback keeps working.
 
 ## Features
 
