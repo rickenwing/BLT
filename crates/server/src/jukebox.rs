@@ -53,17 +53,31 @@ impl Jukebox {
         Ok(conn.last_insert_rowid() as u64)
     }
 
-    /// Reject URL-bearing item refs that aren't http(s) (SEC-7): `direct_url`
-    /// becomes a `<video src>` and `external` opens a browser on the playback
-    /// machine — a client must not be able to point either at `file://` or an
-    /// internal address.
+    /// Number of items waiting in the queue (state='queued'). Used to cap the
+    /// queue so a client can't spam `JukeboxAdd` into an unbounded DB/broadcast.
+    pub fn queued_count(&self, conn: &Connection) -> rusqlite::Result<u64> {
+        conn.query_row(
+            "SELECT COUNT(*) FROM jukebox_items WHERE state='queued'",
+            [],
+            |r| r.get::<_, i64>(0).map(|n| n as u64),
+        )
+    }
+
+    /// Validate an item ref per its type (SEC hardening). Every type is checked
+    /// so a client can't smuggle a hostile ref over the unauthenticated WS:
+    /// - `direct_url`/`youtube`/`external` must be http(s) — they become a media
+    ///   source or open a browser on the playback machine; never `file://` or an
+    ///   internal scheme. (`youtube` is a full URL; the playback side extracts the
+    ///   id and the loopback embed proxy charset-sanitises it, so the id can't
+    ///   inject into the embed page.)
+    /// - `shared_file` must be a numeric share id (it's resolved server-side).
     pub fn ref_acceptable(item_type: ItemType, reference: &str) -> bool {
+        let r = reference.trim();
         match item_type {
-            ItemType::DirectUrl | ItemType::External => {
-                let r = reference.trim();
+            ItemType::DirectUrl | ItemType::External | ItemType::Youtube => {
                 r.starts_with("http://") || r.starts_with("https://")
             }
-            _ => true,
+            ItemType::SharedFile => r.parse::<u64>().is_ok(),
         }
     }
 
@@ -622,5 +636,27 @@ mod tests {
 
         // Idle with nothing playing → no-op.
         assert!(!jb.requeue_now_playing(&conn).unwrap());
+    }
+
+    #[test]
+    fn ref_validation_rejects_hostile_refs() {
+        use ItemType::*;
+        // Accepted: http(s) media/external refs and a numeric share id.
+        assert!(Jukebox::ref_acceptable(DirectUrl, "https://host/v.mp4"));
+        assert!(Jukebox::ref_acceptable(
+            Youtube,
+            "https://youtu.be/dQw4w9WgXcQ"
+        ));
+        assert!(Jukebox::ref_acceptable(
+            External,
+            "http://netflix.com/title/1"
+        ));
+        assert!(Jukebox::ref_acceptable(SharedFile, "42"));
+        // Rejected: non-http(s) schemes, file/internal, non-numeric share id.
+        assert!(!Jukebox::ref_acceptable(DirectUrl, "file:///etc/passwd"));
+        assert!(!Jukebox::ref_acceptable(External, "javascript:alert(1)"));
+        assert!(!Jukebox::ref_acceptable(Youtube, "file:///x"));
+        assert!(!Jukebox::ref_acceptable(SharedFile, "1; DROP TABLE"));
+        assert!(!Jukebox::ref_acceptable(SharedFile, "../../etc"));
     }
 }

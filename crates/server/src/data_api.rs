@@ -23,6 +23,15 @@ use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{debug, info, warn};
 
+// Caps on unauthenticated `/ws` input (F4 hardening). The channel is open on the
+// trusted LAN by design, but bound each field so a single client can't exhaust
+// memory/DB or amplify the jukebox broadcast with giant strings or endless adds.
+const MAX_ID_LEN: usize = 64;
+const MAX_NAME_LEN: usize = 64;
+const MAX_TITLE_LEN: usize = 200;
+const MAX_REF_LEN: usize = 2048;
+const MAX_QUEUE_LEN: u64 = 200;
+
 /// Build the game-distribution router.
 pub fn router(state: SharedState) -> Router {
     Router::new()
@@ -406,6 +415,15 @@ fn handle_client_msg(
             machine_name,
             mode,
         } => {
+            // Bound the self-asserted identity strings (F4): a legit client_id is
+            // a UUID and names are short; anything larger is abuse.
+            if cid.len() > MAX_ID_LEN
+                || display_name.len() > MAX_NAME_LEN
+                || machine_name.len() > MAX_NAME_LEN
+            {
+                warn!(%remote, "rejecting Hello with oversized fields");
+                return;
+            }
             *client_id = cid.clone();
             {
                 let mut sessions = state.sessions.lock();
@@ -511,13 +529,25 @@ fn handle_client_msg(
                 }
             };
             let display_name = if name.is_empty() { cid.clone() } else { name };
+            // Bound the client-supplied strings (F4).
+            if reference.len() > MAX_REF_LEN
+                || title.as_deref().is_some_and(|t| t.len() > MAX_TITLE_LEN)
+            {
+                warn!(ty = ?item_type, "rejected oversized jukebox add");
+                return;
+            }
             if !crate::jukebox::Jukebox::ref_acceptable(item_type, &reference) {
-                warn!(ty = ?item_type, "rejected non-http(s) jukebox ref");
+                warn!(ty = ?item_type, "rejected invalid jukebox ref");
                 return;
             }
             let res = {
                 let conn = state.db.lock();
                 let jb = state.jukebox.lock();
+                // Cap the queue (F4): reject new adds once it's full.
+                if jb.queued_count(&conn).unwrap_or(0) >= MAX_QUEUE_LEN {
+                    warn!(by = %display_name, "jukebox queue full ({MAX_QUEUE_LEN}); add rejected");
+                    return;
+                }
                 jb.add(
                     &conn,
                     item_type,
